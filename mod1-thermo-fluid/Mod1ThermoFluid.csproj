@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Mod1ThermoFluid</RootNamespace>
+    <AssemblyName>Mod1ThermoFluid</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="BreathingPatch.cs" />
+    <Compile Include="AirPhysiology.cs" />
+    <Compile Include="SodaFountainCarbonation.cs" />
+    <Compile Include="SubmergedGasVent.cs" />
+    <Compile Include="DissolvedGasSensor.cs" />
+    <Compile Include="MixtureOverlays.cs" />
+    <Compile Include="MixtureSnapshot.cs" />
+    <Compile Include="MixtureOverlayModes.cs" />
+    <Compile Include="Compressor.cs" />
+    <Compile Include="PipeRadiators.cs" />
+    <Compile Include="ConduitFlowPatch.cs" />
+    <Compile Include="ConduitFreezePatch.cs" />
+    <Compile Include="Extractor.cs" />
+    <Compile Include="HoverPatch.cs" />
+    <Compile Include="Injector.cs" />
+    <Compile Include="LiquidCompressor.cs" />
+    <Compile Include="MassStringPatch.cs" />
+    <Compile Include="Mod.cs" />
+    <Compile Include="Mod1Log.cs" />
+    <Compile Include="Overlay.cs" />
+    <Compile Include="OverlayTexturePatch.cs" />
+    <Compile Include="Patches.cs" />
+    <Compile Include="PipeMatterPersistence.cs" />
+    <Compile Include="PipeMatterState.cs" />
+    <Compile Include="PhaseChangeValves.cs" />
+    <Compile Include="PhaseChambers.cs" />
+    <Compile Include="VolumePump.cs" />
+    <Compile Include="GasMixer.cs" />
+    <Compile Include="AirHandling.cs" />
+    <Compile Include="CarbonSkimmer.cs" />
+    <Compile Include="Biology.cs" />
+    <Compile Include="PipeReadout.cs" />
+    <Compile Include="PipeStressMonitor.cs" />
+    <Compile Include="RefrigerationLoop.cs" />
+    <None Include="mod.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="mod_info.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- kanim assets. Loaded by the game, not by us: KMod.Mod.LoadAnimation walks
+         <mod content path>/anim/*/*/ and registers each innermost directory as a
+         "<dirname>_kanim". The directory structure therefore has to survive into the output
+         verbatim, which is why this is a recursive glob with a Link that preserves the relative
+         path rather than a flat copy. anim/README.md carries the rest of the rules; the .md
+         itself is excluded because the loader warns about every file it cannot classify. -->
+    <None Include="anim\**\*" Exclude="anim\**\*.md" CopyToOutputDirectory="PreserveNewest">
+      <Link>anim\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The framework API this mod goes through, never the SimDLL directly. Private=false:
+         reference for compilation only, do NOT copy OniFramework.dll into this mod's own
+         output folder. OniFramework ships as its own separate mod that this one depends on.
+         Mono loads one assembly per name, so whichever mod's bundled copy happens to load first
+         wins for the whole process, and any version skew between copies breaks every OTHER
+         mod's patched code with a TypeLoadException. -->
+    <ProjectReference Include="$(OniFrameworkDir)OniFramework/OniFramework.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

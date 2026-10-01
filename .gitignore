@@ -1,0 +1,4 @@
+# VS/dotnet project files
+.vs/
+bin/
+obj/

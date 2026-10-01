@@ -1,0 +1,3 @@
+title: "Mod 2 - Matter / Environmental Physics"
+description: "Nitrogen, liquid nitrogen and a toxic pollutant gas, with the physical properties the simulation needs to treat them physically. Requires the ONI simulation SDK: its replacement SimDLL and the OniFramework mod."
+staticID: "Mod2MatterEnvironment"

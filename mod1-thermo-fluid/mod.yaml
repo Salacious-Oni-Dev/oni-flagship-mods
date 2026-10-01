@@ -1,0 +1,3 @@
+title: "Mod 1 - Physical Thermodynamics + Fluid Dynamics"
+description: "Heat that is moved instead of deleted, gases that mix, pipes with real pressure, and phase change with real latent heat. Requires the ONI simulation SDK: its replacement SimDLL and the OniFramework mod."
+staticID: "Mod1ThermoFluid"

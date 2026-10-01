@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Mod2MatterEnvironment</RootNamespace>
+    <AssemblyName>Mod2MatterEnvironment</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Explicit list, not globbing (EnableDefaultCompileItems is false in
+         Directory.Build.props). A new .cs file silently does not build until it is added
+         here; that already cost a real debugging round in Mod 1. -->
+    <Compile Include="Mod.cs" />
+    <Compile Include="PollutantElements.cs" />
+    <Compile Include="NitrogenElements.cs" />
+    <None Include="mod.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="mod_info.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Reference for compilation only. Private=false: do NOT copy OniFramework.dll into this
+         mod's own output. OniFramework ships as its own separate mod that this one depends on
+         being installed; bundling a second copy caused a real TypeLoadException in a live game
+         (Mono loads one assembly per name, so whichever copy loads first wins process-wide). -->
+    <ProjectReference Include="$(OniFrameworkDir)OniFramework/OniFramework.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+</Project>
