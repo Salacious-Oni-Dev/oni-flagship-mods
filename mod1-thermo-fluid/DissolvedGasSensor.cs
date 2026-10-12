@@ -62,7 +62,15 @@ namespace Mod1ThermoFluid
 
             def.Overheatable = false;
             def.Floodable = false;
-            def.Entombable = true;
+            // NOT entombable, like every vanilla sensor that is AlwaysOperational
+            // (LogicDiseaseSensorConfig, LogicPressureSensorGasConfig, LogicTemperatureSensorConfig
+            // all set both). The two cannot be combined: Entombable adds Structure
+            //, which [MyCmpReq]s Operational, while
+            // AlwaysOperational destroys Operational (GeneratedBuildings.InitializeLogicPorts ->
+            // MakeBuildingAlwaysOperationalImpl). Set to true, this
+            // sensor logged "requires a component of type Operational as requested by Structure!"
+            // on every spawn.
+            def.Entombable = false;
             def.ViewMode = OverlayModes.Logic.ID;
             def.AudioCategory = "Metal";
             def.SceneLayer = Grid.SceneLayer.Building;

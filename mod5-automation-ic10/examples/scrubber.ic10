@@ -1,0 +1,11 @@
+# Switch a carbon skimmer on while the air holds too much carbon dioxide.
+# d0: an atmo, thermo or element sensor. d1: the skimmer.
+alias air d0
+alias skimmer d1
+define limit 0.01   # mole fraction
+loop:
+l r0 air RatioCarbonDioxide
+sgt r1 r0 limit
+s skimmer On r1
+yield
+j loop

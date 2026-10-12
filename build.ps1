@@ -127,7 +127,7 @@ try {
   $env:ONI_GAME = Get-OniGame $OniGame
   $dotnet = Find-DotnetSdk
 
-  if (-not $Mods -or $Mods.Count -eq 0) { $Mods = @('mod1-thermo-fluid', 'mod2-matter-environment') }
+  if (-not $Mods -or $Mods.Count -eq 0) { $Mods = @('mod1-thermo-fluid', 'mod2-matter-environment', 'mod5-automation-ic10') }
 
   # The mods reference the framework's project from a checkout beside this one (see
   # Directory.Build.props), and that project only compiles after its own build script has

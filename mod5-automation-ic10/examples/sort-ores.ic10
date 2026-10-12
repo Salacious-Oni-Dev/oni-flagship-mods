@@ -1,0 +1,21 @@
+# Program an IC Sorter: ores out of the middle port, and the first 10 loads of ice too.
+# Everything else goes on out of the far end.
+# d0: an IC Sorter.
+# A filter is one number put into the sorter's memory. The low byte says what it tests:
+#   SorterInstruction.FilterSortingClassCompare: class << 16 | comparison << 8 | 3
+#   SorterInstruction.FilterPrefabHashEquals:    hash << 8 | 1
+#   SorterInstruction.LimitNextExecutionByCount: count << 8 | 6  (the next filter only)
+alias sorter d0
+clr sorter
+s sorter Mode 1    # Any: passing one filter is enough for the middle port
+sll r0 SortingClass.Ores 16
+or r0 r0 SorterInstruction.FilterSortingClassCompare   # comparison Equals is 0
+put sorter 0 r0
+move r0 10
+sll r0 r0 8
+or r0 r0 SorterInstruction.LimitNextExecutionByCount
+put sorter 1 r0
+move r0 HASH("Ice")
+sll r0 r0 8
+or r0 r0 SorterInstruction.FilterPrefabHashEquals
+put sorter 2 r0

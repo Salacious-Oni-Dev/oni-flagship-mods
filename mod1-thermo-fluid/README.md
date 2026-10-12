@@ -78,6 +78,14 @@ pressure (from the ideal gas law for gases, from the fill for liquids) and a pha
   overpressure burst vents the line into the room.
 - **Condensation and freezing.** Gas that condenses inside a pipe stays there as liquid instead
   of being deleted, and a line can freeze solid. Both release or absorb their latent heat.
+- **Arrows on the pipes.** Some buildings now connect to pipes that can flow either way, so in
+  the Gas Ventilation and Plumbing overlays every pipe tile that moved anything carries an arrow
+  the way it went, in the colour of what it carries and thicker the more it carries. A vent or
+  pump exchanging with the room shows arrows pointing out while it blows into the room and in
+  while it draws from it.
+- **Germs ride with the mass.** Germs in a pipe network, a Gas Reservoir or a Liquid Reservoir
+  move, grow and die with what carries them, by the base game's own rules, instead of being
+  deleted on the way in.
 
 ### Gas dissolves in liquid
 
@@ -110,6 +118,19 @@ properties). That makes a vapour-compression cycle work the way it does in reali
 
 Only the working fluid crosses between the rooms, and every joule is accounted for.
 
+### The Steam Room
+
+The Sauna is made physical. The base game's Sauna turns 25 kg of piped steam per use into 25 kg
+of hot water inside the building, deleting the steam's latent heat on the way. With Mod 1 it
+vents its steam into its own sealed room instead, through a humidistat, so the steam brings its
+heat into the room, the air condenses out what it cannot hold, and the water is yours to drain.
+Steam the room does not need stays in the Sauna's storage.
+
+A Rec Room whose Sauna stands in warm, humid, sealed air (40 to 60 °C and at least 60% steam
+humidity) becomes a **Steam Room**, and a Sauna used there gives a stronger morale effect than
+the base game's. The room type is built with the framework's `CustomRoomTypes` and
+`AtmosphereConstraints`, so any mod can make an air-conditioned room the same way.
+
 ### Overlays
 
 Two overlays are added to the overlay menu:
@@ -128,6 +149,7 @@ New buildings:
 
 | building | does |
 |---|---|
+| Active Vent | Stationeers' Active Vent as one building with a mode: Outward blows its pipe into the room until the room reaches its setpoint, Inward draws the room into the pipe. Its port turns round with the mode, and a mode change resets both setpoints as in Stationeers. Its mode and setpoints can be read and written by automation mods through the framework's `DataDevices` |
 | Gas Mixer | blends two gas pipe networks into one at a ratio you set, modelled on Stationeers' Gas Mixer; this is how breathable nitrogen-oxygen air is made |
 | Volume Pump | a positive-displacement pipe-to-pipe gas pump (up to 100 L/s, 240 W at full rate): the pressure boundary between the two sides of a refrigeration loop |
 | Condensation Valve | drains condensed liquid out of a gas line into a liquid line |
@@ -149,6 +171,7 @@ Base-game buildings it augments rather than replaces:
 - **Gas Element Sensor and Gas Vent** move mass between the ordinary atmosphere and the gas
   mixture.
 - **Soda Fountain** serves carbonated water and keeps the carbon dioxide it used to delete.
+- **Sauna** vents its steam into its room instead of turning it into water (see The Steam Room).
 
 ## Launch options
 
@@ -156,12 +179,16 @@ Base-game buildings it augments rather than replaces:
 authentication and listens on every network interface: use it only on a machine you trust,
 for development.
 
+`--mod1-hydrostatics` turns on the framework's liquid hydrostatics: water that is
+incompressible and has pressure at depth, and a submerged Liquid Vent that pushes against that
+pressure up to its rating. It is off by default because it changes how every pool in a save
+behaves; it is not saved, so a save opened without the option behaves as before.
+
 ## Building and installing
 
 See the repository's README.
 
 ## Known limitations
 
-- Disease is not carried through pipe equalisation.
 - Pipe stress is checked only on pipe networks that Mod 1's pumps, tanks and valves have
   exchanged with. A network that no Mod 1 building has touched is not monitored.

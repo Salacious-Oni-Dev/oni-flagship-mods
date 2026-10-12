@@ -1,0 +1,15 @@
+# Harvest a planter only while the pantry is low, so ripe food keeps on the plant.
+# d0: a planter box, farm tile or hydroponic farm. d1: a refrigerator or ration box.
+alias planter d0
+alias pantry d1
+define low 20            # kilograms
+loop:
+s planter AutoHarvest 0  # the plant is new after each harvest, so say it every tick
+ls r0 planter 0 Mature   # 1 ripe, 0 growing, -1 no plant
+l r1 pantry Quantity
+slt r2 r1 low
+sgtz r0 r0
+and r3 r0 r2
+s planter Harvest r3
+yield
+j loop

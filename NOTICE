@@ -1,14 +1,32 @@
-oni-flagship-mods
 Copyright (c) 2026 Salacious
 
-Licensed under the MIT License; see LICENSE.
+Licensed under the MIT License; see LICENSE, with the exceptions noted under "Mod 5" below.
 
 Oxygen Not Included is developed and published by Klei Entertainment. This project is
 not affiliated with or endorsed by Klei Entertainment.
 
-This repository contains no file of the game: no Klei source code, game binaries, game
-assets or game data. Building it needs an installed copy of the game, whose assemblies
-are referenced at build time and are not copied into the output.
+This repository contains no file of the game: no Klei source code, game binaries or game
+data, and no game assets apart from the one piece of art noted under "Mod 5". Building it
+needs an installed copy of the game, whose assemblies are referenced at build time and are
+not copied into the output.
 
 No third-party source code is included. The mods call Harmony, which the game ships;
 it is referenced at build time and is not redistributed here.
+
+Mod 5 (mod5-automation-ic10)
+----------------------------
+
+The IC10 interpreter in mod5-automation-ic10/Ic10/ follows the IC10 programmable chip of
+Stationeers closely, so that IC10 programs written for Stationeers run unchanged.
+Ic10/Ic10StationeersTables.cs carries Stationeers' names and numbers for its logic types and
+enums, and code comments name the Stationeers part each piece follows. The parts that follow
+Stationeers are NOT covered by the MIT licence: they remain the property of RocketWerkz,
+Stationeers' developer, and will be replaced by independently written code in a later release.
+
+The IC Sorter's picture (anim/assets/StructureLogicSorter) includes the game's own straight
+conveyor rail. That rail is Klei's art, is not covered by the MIT licence, and will be redrawn.
+
+All Mod 5 art is placeholder art made with AI tools, to be replaced.
+
+Stationeers is a trademark of RocketWerkz. This project is not affiliated with or endorsed by
+RocketWerkz.

@@ -26,7 +26,7 @@ namespace Mod1ThermoFluid
     /// ManagedLiquidConduitCells / ConduitFlowPatch.cs).
     /// </summary>
     [SerializationConfig(MemberSerialization.OptIn)]
-    public class LiquidMixtureTankComponent : KMonoBehaviour
+    public class LiquidMixtureTankComponent : KMonoBehaviour, ISim200ms
     {
         private Building building;
 
@@ -37,7 +37,7 @@ namespace Mod1ThermoFluid
         // Vanilla's own reservoir consumer is `alwaysConsume` for exactly this reason: a tank's
         // job is to accept whatever the pipe offers.
         private const float PullIntervalSeconds = 0.2f;
-        private float pullTimer;
+        private DeviceTick pullTick;
 
         // Vanilla Liquid Reservoir's own Storage.capacityKg = 5000f
         // (LiquidReservoirConfig.ConfigureBuildingTemplate) -- reused directly, not invented.
@@ -85,21 +85,39 @@ namespace Mod1ThermoFluid
         [Serialize] private List<float> savedMassKg = new List<float>();
         [Serialize] private float temperatureK;
 
+        // The germs riding with the store, one load per element (TankGerms.cs).
+        [Serialize] private List<int> savedGermElementIdx = new List<int>();
+        [Serialize] private List<byte> savedGermDiseaseIdx = new List<byte>();
+        [Serialize] private List<int> savedGermCount = new List<int>();
+        private readonly List<float> germError = new List<float>();
+
+        private TankGermBook Germs => new TankGermBook(savedGermElementIdx, savedGermDiseaseIdx, savedGermCount, germError);
+
         protected override void OnSpawn()
         {
             base.OnSpawn();
             building = GetComponent<Building>();
         }
 
-        private void Update()
+        // SIM time, overshoot kept: vanilla's ISim200ms bucket through DeviceTick (see
+        // DeviceTick.cs). This used to be Update() counting Time.deltaTime and resetting to 0, so
+        // the device's throughput followed the frame rate.
+        public void Sim200ms(float dt)
         {
-            pullTimer += Time.deltaTime;
-            if (pullTimer < PullIntervalSeconds)
+            // Register T6: a KMonoBehaviour stays in its bucket while disabled (UpdateBucketWithUpdater.Update never checks `enabled`), so gate here, before Advance, so a stood-down tank neither works nor banks time.
+            if (!isActiveAndEnabled)
             {
                 return;
             }
-            pullTimer = 0f;
+            for (int due = pullTick.Advance(dt, PullIntervalSeconds); due > 0; due--)
+            {
+                Pull();
+                Germs.Tick(savedElementIdx, savedMassKg, Grid.PosToCell(this), temperatureK, PullIntervalSeconds);
+            }
+        }
 
+        private void Pull()
+        {
             if (building == null)
             {
                 return;
@@ -166,6 +184,19 @@ namespace Mod1ThermoFluid
             {
                 if (savedElementIdx.Count == 0)
                 {
+                    // IDLE KEEP-ALIVE. Nothing to exchange this tick, but the
+                    // line is still this device's: level it anyway so its managed-cell lease never
+                    // lapses while the device stands. Without it an idle device's line would drop to
+                    // vanilla's mover after ManagedLeaseSeconds and be re-armed by the next real
+                    // exchange -- a managed<->vanilla flip every idle spell. The lease now lapses only when the device is gone (deconstructed or
+                    // destroyed: this tick stops with the component) or the pipe is cut so the line no
+                    // longer reaches it, which is the case it exists for. A reservoir has no off
+                    // state. Levelling an already-level line moves nothing; an empty one returns after
+                    // renewing the lease.
+                    if (EqualiseNetworkEnabled)
+                    {
+                        GasMixtureFacade.EqualizeLiquidNetwork(inputCell);
+                    }
                     return;
                 }
                 int bestIdx = 0;
@@ -222,7 +253,8 @@ namespace Mod1ThermoFluid
                             tookCargo = DissolvedCargo.ConduitToItem(inputCell, gameObject,
                                 removed.mass / pipeMassBefore);
                         }
-                        AddMass(exchangeElementIdx, removed.mass, removed.temperature);
+                        AddMass(exchangeElementIdx, removed.mass, removed.temperature, removed.diseaseIdx,
+                            removed.diseaseCount);
                     }
                 }
                 else if (delta < 0f)
@@ -231,7 +263,8 @@ namespace Mod1ThermoFluid
                     // DISSOLVED CARGO, the outfall half. Same rule, same order: the share is over the
                     // tank's own mass before any of it leaves.
                     float tankMassBefore = TotalMassKg;
-                    float accepted = liquidFlow.AddElement(inputCell, exchangeElement.id, pushKg, temperatureK, 0, 0);
+                    float accepted = Germs.Emit(liquidFlow, inputCell, exchangeElementIdx, pushKg,
+                        tankMassForSpecies, temperatureK);
                     if (accepted > 0f)
                     {
                         if (tankMassBefore > 0f)
@@ -248,6 +281,17 @@ namespace Mod1ThermoFluid
             {
                 GasMixtureFacade.EqualizeLiquidNetwork(inputCell);
             }
+
+            // THE HEAT HALF OF THE EXCHANGE. The volume exchange above moves
+            // heat only with the mass it moves, so once tank and line are level nothing carries
+            // heat between them, and a boil inside the line left the line colder than the tank
+            // for good (ISOLINE P3b). Stationeers mixes a Tank's internal atmosphere
+            // with its network every atmospheric tick, energy included (DeviceInternal.
+            // OnAtmosphericTick -> AtmosphereHelper.Mix), so both leave the tick at one
+            // temperature: fraction 1 is that match. After the levelling, so the line it pools
+            // with is already one temperature.
+            temperatureK = PipeMatterFacade.ExchangeHeatWithNetwork(inputCell, false,
+                HeatCapacityJPerK(), temperatureK, 1f, out float _);
 
             float auditAfter = AuditEnabled ? AuditMassKg() : auditBefore;
             if (Mathf.Abs(auditAfter - auditBefore) > AuditToleranceKg)
@@ -433,8 +477,8 @@ namespace Mod1ThermoFluid
                     int farthest = PipeNetworkFacade.FarthestNetworkCell(outCells, outputCell);
                     if (farthest != Grid.InvalidCell)
                     {
-                        accepted = liquidFlow.AddElement(farthest, element.id, offerKg,
-                            sendTemperatureK, 0, 0);
+                        accepted = Germs.Emit(liquidFlow, farthest, elementIdx, offerKg,
+                            savedMassKg[best], sendTemperatureK);
                         if (accepted > 0f)
                         {
                             landedCell = farthest;
@@ -446,8 +490,8 @@ namespace Mod1ThermoFluid
                         {
                             continue;
                         }
-                        accepted = liquidFlow.AddElement(outCells[i], element.id, offerKg,
-                            sendTemperatureK, 0, 0);
+                        accepted = Germs.Emit(liquidFlow, outCells[i], elementIdx, offerKg,
+                            savedMassKg[best], sendTemperatureK);
                         if (accepted > 0f)
                         {
                             landedCell = outCells[i];
@@ -456,8 +500,8 @@ namespace Mod1ThermoFluid
                 }
                 if (accepted <= 0f)
                 {
-                    accepted = liquidFlow.AddElement(outputCell, element.id, offerKg,
-                        sendTemperatureK, 0, 0);
+                    accepted = Germs.Emit(liquidFlow, outputCell, elementIdx, offerKg,
+                        savedMassKg[best], sendTemperatureK);
                     if (accepted > 0f)
                     {
                         landedCell = outputCell;
@@ -511,8 +555,12 @@ namespace Mod1ThermoFluid
         /// practically incompressible at game-relevant pressures, so pumping it into an existing
         /// store does negligible real compression work compared to a gas -- the physical
         /// justification for the gas-side fix doesn't apply here, this isn't an oversight.
+        ///
+        /// The germs arriving with the mass (none by default, so every older caller is unchanged)
+        /// combine into the store's load for that element (TankGerms.cs).
         /// </summary>
-        public void AddMass(int elementIdx, float massKg, float sourceTempK)
+        public void AddMass(int elementIdx, float massKg, float sourceTempK, byte diseaseIdx = byte.MaxValue,
+            int diseaseCount = 0)
         {
             if (massKg <= 0f)
             {
@@ -530,6 +578,7 @@ namespace Mod1ThermoFluid
                 savedMassKg.Add(massKg);
             }
             temperatureK = GasMixtureFacade.CombineTemperature(existingMass, temperatureK, massKg, sourceTempK);
+            Germs.Add(elementIdx, diseaseIdx, diseaseCount);
         }
 
         private void RemoveMass(int elementIdx, float massKg)
@@ -549,6 +598,46 @@ namespace Mod1ThermoFluid
                 savedMassKg.RemoveAt(i);
                 savedElementIdx.RemoveAt(i);
             }
+        }
+
+        /// <summary>The store's heat capacity, J/K: sum of mass x specific heat over its species,
+        /// in the units <see cref="PipeMatterFacade.ExchangeHeatWithNetwork"/> takes.</summary>
+        private float HeatCapacityJPerK()
+        {
+            float heatCapacityJPerK = 0f;
+            for (int i = 0; i < savedElementIdx.Count; i++)
+            {
+                heatCapacityJPerK += savedMassKg[i]
+                    * ElementLoader.elements[savedElementIdx[i]].specificHeatCapacity * 1000f;
+            }
+            return heatCapacityJPerK;
+        }
+
+        /// <summary>RIG READOUT (ISOLINE, 0.2.6): what this tank holds of one element, kg.</summary>
+        internal float MassOfElementKg(int elementIdx)
+        {
+            int i = savedElementIdx.IndexOf(elementIdx);
+            return i >= 0 ? savedMassKg[i] : 0f;
+        }
+
+        /// <summary>RIG READOUT (ISOLINE, 0.2.6): the tank's one shared temperature, K.</summary>
+        internal float TemperatureKForRig => temperatureK;
+
+        /// <summary>RIG READOUT (TANKGERMS, 0.2.13): the germ loads riding with the store.</summary>
+        internal TankGermBook GermsForRig => Germs;
+
+        /// <summary>
+        /// RIG SETUP ONLY (ISOLINE, 0.2.6): empties the store and returns what it held, kg, so the
+        /// rig can put the tank in its idle state (empty store, empty port) and book the removal in
+        /// its own ledger. Never called by the mod itself.
+        /// </summary>
+        internal float TakeAllForRig()
+        {
+            float total = TotalMassKg;
+            savedElementIdx.Clear();
+            savedMassKg.Clear();
+            Germs.Clear();
+            return total;
         }
 
         public float TotalMassKg
@@ -610,7 +699,7 @@ namespace Mod1ThermoFluid
     /// The source side of the liquid compressor pair -- see LiquidMixtureTankComponent's doc
     /// comment above. Augments the vanilla Liquid Pump (LiquidPumpConfig).
     /// </summary>
-    public class LiquidMixtureCompressorIntakeComponent : MonoBehaviour
+    public class LiquidMixtureCompressorIntakeComponent : MonoBehaviour, ISim1000ms
     {
         // WHETHER THE CARGO ACTUALLY CAME WITH THE WATER, counted rather than assumed.
         //
@@ -679,7 +768,7 @@ namespace Mod1ThermoFluid
         // same as the gas pump.
         private const int ConsumptionRadius = 2;
 
-        private float timer;
+        private DeviceTick tick;
         private Operational operational;
         private EnergyConsumer energyConsumer;
         private Building building;
@@ -691,16 +780,73 @@ namespace Mod1ThermoFluid
             building = GetComponent<Building>();
         }
 
-        private void Update()
+        // A plain MonoBehaviour is not registered with SimAndRenderScheduler the way a
+        // KMonoBehaviour is (KMonoBehaviour.Spawn), so it registers itself. OnEnable/OnDisable,
+        // not Start/OnDestroy: work runs exactly while the component is enabled, which is when the
+        // Update() this replaces ran.
+        private bool tickRegistered;
+
+        private void OnEnable()
         {
-            timer += Time.deltaTime;
-            if (timer < SampleIntervalSeconds)
+            if (!tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Add(this);
+                tickRegistered = true;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Remove(this);
+                tickRegistered = false;
+            }
+        }
+
+        // SIM time, overshoot kept: vanilla's ISim1000ms bucket through DeviceTick (see
+        // DeviceTick.cs). This used to be Update() counting Time.deltaTime and resetting to 0, so
+        // the device's throughput followed the frame rate.
+        public void Sim1000ms(float dt)
+        {
+            for (int due = tick.Advance(dt, SampleIntervalSeconds); due > 0; due--)
+            {
+                levelledThisPump = false;
+                Pump();
+                // IDLE KEEP-ALIVE: a tick that pumped nothing (no power,
+                // broken, logic off, disabled by the player, nothing to draw, the pipe full) still
+                // levels the output line, so the line stays managed while this pump stands instead of
+                // flipping to vanilla's mover after every idle spell longer than ManagedLeaseSeconds
+                // DELIBERATELY NOT GATED on Operational: the levelling is the pipe's own state, one
+                // atmosphere per network as a Stationeers pipe network keeps it whatever its devices' power, and it does no work for the pump (no mass in
+                // or out, no energy). Gating it would bring the managed<->vanilla flip back on every
+                // power flicker. The lease lapses only when the pump is gone or the line is cut.
+                if (!levelledThisPump)
+                {
+                    KeepOutputManaged();
+                }
+            }
+        }
+
+        private bool levelledThisPump;
+
+        private void KeepOutputManaged()
+        {
+            if (building == null)
             {
                 return;
             }
-            timer = 0f;
+            int outputCell = building.GetUtilityOutputCell();
+            if (!Grid.IsValidCell(outputCell) || !Game.Instance.liquidConduitFlow.HasConduit(outputCell))
+            {
+                return;
+            }
+            GasMixtureFacade.EqualizeLiquidNetwork(outputCell);
+        }
 
-            // Same fix as GasMixtureCompressorIntakeComponent's own Update() -- see its doc
+        private void Pump()
+        {
+            // Same fix as GasMixtureCompressorIntakeComponent's own Pump() -- see its doc
             // comment for the full mechanism. `operational.IsOperational` ANDs in
             // `Pump.PumpableFlag`, driven by a vanilla quirk
             // (`Pump.IsPumpable()` only scans a +x/+y quarter-quadrant, not a real radius
@@ -839,6 +985,7 @@ namespace Mod1ThermoFluid
                 }
             }
             GasMixtureFacade.EqualizeLiquidNetwork(outputCell);
+            levelledThisPump = true;
         }
 
         /// <summary>

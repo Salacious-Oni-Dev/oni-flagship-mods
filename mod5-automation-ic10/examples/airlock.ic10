@@ -1,0 +1,23 @@
+# Two doors that are never both passable. A switch chooses which side is.
+# d0: inner door. d1: outer door. d2: an IC Switch or a signal switch.
+# A locked door lets nobody through; an unlocked one opens for whoever walks up.
+alias inner d0
+alias outer d1
+alias lever d2
+loop:
+l r0 lever Setting
+beqz r0 goIn
+# Outer side wanted: lock the inner door, wait until it has shut, free the outer.
+s inner Lock 1
+l r1 inner OpenNow
+bnez r1 wait
+s outer Lock 0
+j wait
+goIn:
+s outer Lock 1
+l r1 outer OpenNow
+bnez r1 wait
+s inner Lock 0
+wait:
+yield
+j loop

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <RootNamespace>Mod2MatterEnvironment</RootNamespace>
     <AssemblyName>Mod2MatterEnvironment</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.7.6</Version>
   </PropertyGroup>
   <ItemGroup>
     <!-- Explicit list, not globbing (EnableDefaultCompileItems is false in
@@ -11,8 +11,29 @@
     <Compile Include="Mod.cs" />
     <Compile Include="PollutantElements.cs" />
     <Compile Include="NitrogenElements.cs" />
+    <Compile Include="Grime.cs" />
+    <Compile Include="GrimeMonitor.cs" />
+    <Compile Include="SootElement.cs" />
+    <Compile Include="Campfire.cs" />
+    <Compile Include="CombustionFuels.cs" />
+    <Compile Include="Sparker.cs" />
+    <Compile Include="FireSprinkler.cs" />
+    <Compile Include="HydrogenCombustor.cs" />
+    <Compile Include="ElectrolyzerPower.cs" />
+    <Compile Include="SolarPanelPower.cs" />
+    <Compile Include="Fermentables.cs" />
+    <Compile Include="FruitSugar.cs" />
+    <Compile Include="MashTun.cs" />
+    <Compile Include="SugarWaterSource.cs" />
     <None Include="mod.yaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="mod_info.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- kanim assets (the campfire's PhysicalCampfire), the same item as Mod 1's: the game's
+         loader registers each anim/assets/<Name>/ as <Name>_kanim, so the directory structure
+         has to survive into the output. anim/README.md is excluded; the loader warns about every
+         file it cannot classify. -->
+    <None Include="anim\**\*" Exclude="anim\**\*.md" CopyToOutputDirectory="PreserveNewest">
+      <Link>anim\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <!-- Reference for compilation only. Private=false: do NOT copy OniFramework.dll into this

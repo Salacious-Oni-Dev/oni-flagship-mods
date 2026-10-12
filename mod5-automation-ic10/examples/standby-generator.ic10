@@ -1,0 +1,16 @@
+# Run a generator only while the battery is low.
+# d0: a battery. d1: a generator with an enable button.
+alias battery d0
+alias generator d1
+define low 0.2
+define high 0.9
+loop:
+l r0 battery Ratio
+bge r0 low notLow
+s generator On 1
+notLow:
+ble r0 high notHigh
+s generator On 0
+notHigh:
+yield
+j loop

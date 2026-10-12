@@ -1,0 +1,6 @@
+<Project>
+  <!-- Stops MSBuild walking up to this repository's Directory.Build.props. That file gives every
+       project under it the game and Unity assemblies and a net48-only target. This library
+       references neither on purpose: it is the IC10 language with no game in it, so that it
+       can be built and tested on any machine, with no ONI install. -->
+</Project>

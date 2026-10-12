@@ -2,9 +2,10 @@
   <PropertyGroup>
     <RootNamespace>Mod1ThermoFluid</RootNamespace>
     <AssemblyName>Mod1ThermoFluid</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.13</Version>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="SteamRoom.cs" />
     <Compile Include="BreathingPatch.cs" />
     <Compile Include="AirPhysiology.cs" />
     <Compile Include="SodaFountainCarbonation.cs" />
@@ -14,6 +15,7 @@
     <Compile Include="MixtureSnapshot.cs" />
     <Compile Include="MixtureOverlayModes.cs" />
     <Compile Include="Compressor.cs" />
+    <Compile Include="DeviceTick.cs" />
     <Compile Include="PipeRadiators.cs" />
     <Compile Include="ConduitFlowPatch.cs" />
     <Compile Include="ConduitFreezePatch.cs" />
@@ -34,11 +36,14 @@
     <Compile Include="VolumePump.cs" />
     <Compile Include="GasMixer.cs" />
     <Compile Include="AirHandling.cs" />
+    <Compile Include="ActiveVent.cs" />
     <Compile Include="CarbonSkimmer.cs" />
     <Compile Include="Biology.cs" />
     <Compile Include="PipeReadout.cs" />
     <Compile Include="PipeStressMonitor.cs" />
+    <Compile Include="PipeFlowArrows.cs" />
     <Compile Include="RefrigerationLoop.cs" />
+    <Compile Include="TankGerms.cs" />
     <None Include="mod.yaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="mod_info.yaml" CopyToOutputDirectory="PreserveNewest" />
     <!-- kanim assets. Loaded by the game, not by us: KMod.Mod.LoadAnimation walks

@@ -20,22 +20,50 @@ namespace Mod1ThermoFluid
     /// the cell's mass can never go negative. Every sample this component takes is now a
     /// conserving transfer, not a duplication.
     /// </summary>
-    public class GasMixtureInjectorComponent : MonoBehaviour
+    public class GasMixtureInjectorComponent : MonoBehaviour, ISim1000ms
     {
         private const float SampleIntervalSeconds = 1f;
         private const float SampleFraction = 0.01f; // 1% of the cell's vanilla mass per sample
 
-        private float timer;
+        private DeviceTick tick;
 
-        private void Update()
+        // A plain MonoBehaviour is not registered with SimAndRenderScheduler the way a
+        // KMonoBehaviour is (KMonoBehaviour.Spawn), so it registers itself. OnEnable/OnDisable,
+        // not Start/OnDestroy: work runs exactly while the component is enabled, which is when the
+        // Update() this replaces ran.
+        private bool tickRegistered;
+
+        private void OnEnable()
         {
-            timer += Time.deltaTime;
-            if (timer < SampleIntervalSeconds)
+            if (!tickRegistered)
             {
-                return;
+                SimAndRenderScheduler.instance.Add(this);
+                tickRegistered = true;
             }
-            timer = 0f;
+        }
 
+        private void OnDisable()
+        {
+            if (tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Remove(this);
+                tickRegistered = false;
+            }
+        }
+
+        // SIM time, overshoot kept: vanilla's ISim1000ms bucket through DeviceTick (see
+        // DeviceTick.cs). This used to be Update() counting Time.deltaTime and resetting to 0, so
+        // the device's throughput followed the frame rate.
+        public void Sim1000ms(float dt)
+        {
+            for (int due = tick.Advance(dt, SampleIntervalSeconds); due > 0; due--)
+            {
+                Sample();
+            }
+        }
+
+        private void Sample()
+        {
             int cell = Grid.PosToCell(transform.position);
             if (!Grid.IsValidCell(cell))
             {

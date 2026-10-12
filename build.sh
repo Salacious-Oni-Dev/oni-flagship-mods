@@ -12,17 +12,16 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 mods=("$@")
 if [ ${#mods[@]} -eq 0 ]; then
-  mods=(mod1-thermo-fluid mod2-matter-environment)
+  mods=(mod1-thermo-fluid mod2-matter-environment mod5-automation-ic10)
 fi
 
 # GUARD: A FLAGSHIP MOD MAY NOT CALL Debug.LogError.
 #
-# ONI's KCrashReporter treats LogType.Error exactly as it treats an unhandled exception. From
-# `KCrashReporter.HandleLog`, `if (!(errorScreen == null) || (type != LogType.Exception && type
-# != 0) || ...) return;` -- and LogType.Error IS 0, so an error does NOT return. It falls through
-# to `Pause(playSound: true, isCrashed: true)` and `ShowDialog`, which walks the live stack,
-# UNCHECKS every mod it finds there, and -- since `terminateOnError` defaults true and a player's
-# install has no Dev-distribution mod to relax it -- offers no Continue button at all.
+# ONI's KCrashReporter treats LogType.Error exactly as it treats an unhandled exception: its log
+# handler lets both through (LogType.Error is 0), pauses the game as crashed and shows the crash
+# dialog, which walks the live stack, UNCHECKS every mod it finds there, and -- since
+# `terminateOnError` defaults true and a player's install has no Dev-distribution mod to relax
+# it -- offers no Continue button at all.
 #
 # This is a check and not only a comment because a rule stated at one call site does not reach
 # the others. Route everything through Mod1Log (mod1-thermo-fluid/Mod1Log.cs)

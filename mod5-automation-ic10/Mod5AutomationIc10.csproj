@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Mod5AutomationIc10</RootNamespace>
+    <AssemblyName>Mod5AutomationIc10</AssemblyName>
+    <Version>0.2.1</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Explicit list, not globbing (EnableDefaultCompileItems is false in
+         Directory.Build.props). A new .cs file silently does not build until it is added
+         here. The sources under Ic10/ and tests/ are other projects and are not listed. -->
+    <Compile Include="Mod.cs" />
+    <Compile Include="Mod5Log.cs" />
+    <Compile Include="Ic10OniViews.cs" />
+    <Compile Include="Ic10DoorLogic.cs" />
+    <Compile Include="Ic10OniAtmospheres.cs" />
+    <Compile Include="Ic10Devices.cs" />
+    <Compile Include="Ic10HousingBuilding.cs" />
+    <Compile Include="Ic10DataCable.cs" />
+    <Compile Include="Ic10DataOverlay.cs" />
+    <Compile Include="Ic10LegacyWire.cs" />
+    <Compile Include="Ic10PortDrive.cs" />
+    <Compile Include="Ic10Editor.cs" />
+    <Compile Include="Ic10Links.cs" />
+    <Compile Include="Ic10Research.cs" />
+    <Compile Include="Ic10HousingSideScreen.cs" />
+    <Compile Include="Ic10Ui.cs" />
+    <Compile Include="Ic10UnitSideScreen.cs" />
+    <Compile Include="Ic10TransformerCap.cs" />
+    <Compile Include="Ic10Bricks.cs" />
+    <Compile Include="Ic10Fabricators.cs" />
+    <Compile Include="Ic10Sorters.cs" />
+    <Compile Include="Ic10Checklists.cs" />
+    <Compile Include="Ic10OniReadings.cs" />
+    <Compile Include="Ic10Units.cs" />
+    <Compile Include="Ic10HoverReadout.cs" />
+    <None Include="mod.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="mod_info.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Example programs, shipped beside the mod for a player to read and paste. -->
+    <None Include="examples\**\*.ic10" CopyToOutputDirectory="PreserveNewest" />
+    <!-- kanims, loaded by the game from anim/*/*/; the path must survive. -->
+    <None Include="anim\**\*" CopyToOutputDirectory="PreserveNewest">
+      <Link>anim\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The IC10 language, with no game in it. Copied into this mod's output on purpose:
+         the game loads every DLL in a mod's folder, and Ic10.dll ships as part of this mod.
+         The project builds net48 and net8.0; this reference takes net48. -->
+    <ProjectReference Include="Ic10\Ic10.csproj" />
+  </ItemGroup>
+  <!-- The IC Display draws its number with TextMeshPro's world-space text (Ic10Bricks.cs).
+       The game ships the assembly; compiled against, never copied. -->
+  <ItemGroup>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(ModLibDir)Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(ModLibDir)UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- OniFramework: compiled against, never a second copy in this mod's folder. It ships as its
+       own mod and must be installed and loaded before this one. -->
+  <ItemGroup>
+    <ProjectReference Include="$(OniFrameworkDir)OniFramework/OniFramework.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

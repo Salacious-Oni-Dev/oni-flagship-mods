@@ -38,9 +38,11 @@ namespace Mod1ThermoFluid
     ///   16-12 kPa LOW and 12-5 kPa CRITICAL before suffocation at last begins, so the critical
     ///   band is a new status item and a new effect rather than a re-use of vanilla's.
     /// - AIR TEMPERATURE AS A BREATHING PROBLEM. Comfortable is 0-50 C; outside it the duplicant
-    ///   is warned, and below -10 C or above 50 C the lungs actually take damage. Vanilla models
-    ///   scalding and hypothermia against the duplicant's own body temperature and has nothing to
-    ///   say about the temperature of the gas going into them.
+    ///   is warned. Below -10 C the lungs take damage; above 50 C they are only warned, and take
+    ///   damage once the air passes the duplicant's own scalding threshold (Klei's
+    ///   `ScaldingThreshold` attribute, 345 K unless a trait moves it). Vanilla models scalding and
+    ///   hypothermia against the duplicant's own body temperature and has nothing to say about the
+    ///   temperature of the gas going into them.
     /// - CARBON DIOXIDE AS A POISON RATHER THAN MERELY NOT-OXYGEN. Above 0.5% it is a headache,
     ///   above 1% it impairs, and above 7% it suffocates a duplicant EVEN IN A ROOM WITH PLENTY OF
     ///   OXYGEN -- which is the rule that makes a sealed corridor with a working air loop
@@ -88,13 +90,21 @@ namespace Mod1ThermoFluid
         internal const string ContaminantImpairedEffectId = "Mod1AirImpaired";
 
         /// <summary>
-        /// Lung damage per second while the air is below -10 C or above 50 C. A duplicant has 100
+        /// Lung damage per second while the air is below -10 C, or above the duplicant's own scalding
+        /// threshold (<see cref="ScaldingThresholdK"/>). A duplicant has 100
         /// hit points, so half a point a second is a hundred seconds of unprotected exposure
         /// before it kills -- long enough to notice the red warning and walk out, short enough
         /// that ignoring it is fatal. Deliberately a round, legible number rather than a tuned
         /// one; balancing belongs to a play test, not to this file.
         /// </summary>
         private const float LungDamagePerSecond = 0.5f;
+
+        /// <summary>
+        /// Klei's own default for the <c>ScaldingThreshold</c> attribute
+        /// (<c>ScaldingMonitor.Def.defaultScaldingTreshold</c>), used only when a breather carries no
+        /// value for it.
+        /// </summary>
+        private const float DefaultScaldingThresholdK = 345f;
 
         /// <summary>
         /// The effect objects this file has built, kept so a rebuilt database can be handed the
@@ -224,7 +234,7 @@ namespace Mod1ThermoFluid
                 new AttributeModifier("StressDelta", 1f / 60f, "Breathing Frigid Air"));
 
             AddEffect(AirHotEffectId, "Breathing Scorching Air",
-                "The air here is hot enough to injure lungs.",
+                "The air here is uncomfortably hot to breathe. Past their scalding threshold it injures lungs.",
                 new AttributeModifier("StressDelta", 1f / 60f, "Breathing Scorching Air"));
 
             AddEffect(ContaminantHeadacheEffectId, "Headache",
@@ -297,8 +307,8 @@ namespace Mod1ThermoFluid
                 "This air is below -10 C. It is damaging their lungs.",
                 NotificationType.Bad);
             airHotItem = MakeItem("Mod1AirHot", "Scorching Air",
-                "This air is above 50 C. It is damaging their lungs.",
-                NotificationType.Bad);
+                "This air is above 50 C. Uncomfortable to breathe; past their scalding threshold it damages their lungs.",
+                NotificationType.BadMinor);
             carbonDioxideHeadacheItem = MakeItem("Mod1AirCO2Headache", "Stale Air",
                 "Carbon dioxide here is above 0.5%. Enough to cause headaches.",
                 NotificationType.BadMinor);
@@ -372,22 +382,48 @@ namespace Mod1ThermoFluid
             }
         }
 
-        /// <summary>Lung damage rate for the air, in hit points per second.</summary>
-        internal static float LungDamageRate(AirAssessment air)
+        /// <summary>
+        /// Lung damage rate for the air, in hit points per second. Cold air damages below -10 C
+        /// (Frigid). Hot air damages only above <paramref name="scaldingThresholdK"/>, the breather's
+        /// own Klei <c>ScaldingThreshold</c>: the 50 C "Hot" grade stays a
+        /// warning. Before, any air over 50 C charged, so a duplicant tending a campfire in an
+        /// ordinary room took lung damage at 316-328 K, and the Steam
+        /// Room's 313-333 K band would have too. The threshold is the attribute vanilla's
+        /// ScaldingMonitor compares body-side heat against, so traits that toughen skin raise this
+        /// line as well.
+        /// </summary>
+        internal static float LungDamageRate(AirAssessment air, float scaldingThresholdK)
         {
-            if (air.Temperature == AirTemperatureGrade.Frigid
-                || air.Temperature == AirTemperatureGrade.Hot)
+            if (air.Temperature == AirTemperatureGrade.Frigid)
+            {
+                return LungDamagePerSecond;
+            }
+            if (air.Temperature == AirTemperatureGrade.Hot && air.TemperatureK > scaldingThresholdK)
             {
                 return LungDamagePerSecond;
             }
             return 0f;
         }
+
+        /// <summary>
+        /// The breather's <c>ScaldingThreshold</c> attribute, K -- what vanilla's
+        /// <c>ScaldingMonitor.GetScaldingThreshold</c> reads, base 345 K plus any trait modifiers --
+        /// or Klei's 345 K default when the breather carries no value for it.
+        /// </summary>
+        internal static float ScaldingThresholdK(GameObject breather)
+        {
+            AttributeInstance threshold = breather != null
+                ? Db.Get().Attributes.ScaldingThreshold.Lookup(breather)
+                : null;
+            float value = threshold != null ? threshold.GetTotalValue() : 0f;
+            return value > 0f ? value : DefaultScaldingThresholdK;
+        }
     }
 
     /// <summary>
     /// One per duplicant. Grades the air they are standing in once a second, keeps their status
-    /// items and effects in step with it, and applies lung damage while the air is cold or hot
-    /// enough to cause it.
+    /// items and effects in step with it, and applies lung damage while the air is frigid or past
+    /// the duplicant's scalding threshold.
     ///
     /// ONCE A SECOND, not every 200 ms: the breathing DECISIONS (suffocation, the low-oxygen flag)
     /// are on vanilla's own 200 ms path where they belong, and everything this component does is
@@ -491,7 +527,7 @@ namespace Mod1ThermoFluid
             Apply(AirPhysiology.Condition.ToxicSuffocating,
                 air.Toxic == ContaminantGrade.Suffocating);
 
-            float damageRate = AirPhysiology.LungDamageRate(air);
+            float damageRate = AirPhysiology.LungDamageRate(air, AirPhysiology.ScaldingThresholdK(gameObject));
             if (damageRate > 0f && health != null)
             {
                 health.Damage(damageRate * dt);

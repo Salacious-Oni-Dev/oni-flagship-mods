@@ -33,7 +33,11 @@ namespace Mod1ThermoFluid
             // Deliberately does not return early on false: Require only reports, and a skew may
             // touch one surface out of the many below, so bailing here would cost every mechanic
             // for the sake of one. The error is logged loudly by Require itself.
-            OniFramework.FrameworkVersion.Require(0, 1, "Mod1ThermoFluid");
+            OniFramework.FrameworkVersion.Require(0, 2, "Mod1ThermoFluid");
+
+            // The Steam Room room type. Registered here, in OnLoad, because the framework adds it
+            // to Klei's room types when the database is built.
+            SteamRoom.Register();
 
             // The build watermark, top-left of every screen from the main menu onward, restamped
             // to name the SimDLL, the framework and the game build instead of Klei's distribution
@@ -53,6 +57,11 @@ namespace Mod1ThermoFluid
             // prepared for. Inert unless a rig is armed -- the postfix decides at dialog time,
             // when the answer is knowable -- so a player's crash screen is untouched.
             OniFramework.RigCrashScreen.Install(harmony);
+
+            // The pipe overlays' flow arrows read this (PipeFlowArrows.cs). Display only -- it
+            // tallies port traffic and reads vanilla's last-move record, and moves nothing -- so
+            // it is outside the --mod1-vanillaheat early return like the two above.
+            OniFramework.PipeFlowField.Install(harmony);
 
             // THE PHASE RULES, IN THE SIM BEFORE ANY LOAD. The OnSpawn push (Patches.cs) arrives
             // after SaveLoader has loaded the sim, and the SimDLL's Load runs Klei's load-time
@@ -186,6 +195,7 @@ namespace Mod1ThermoFluid
             PipeRadiators.Install();
             PhaseChambers.Install();
             AirHandling.Install();
+            ActiveVentConfig.Install();
 
             // The Dissolved Gas Sensor: the instrument that makes dissolved gas readable from
             // inside the game. Same treatment as the valves above -- the
@@ -242,6 +252,28 @@ namespace Mod1ThermoFluid
             OniFramework.SimExtRegistrar.Install(harmony);
             OniFramework.SimExtRegistrar.Opening += () =>
                 OniFramework.SimTunables.Set(OniFramework.SimTunable.CellEnergyCarry, 1, carryOwner);
+
+            // LIQUID HYDROSTATICS (OniFramework.Hydrostatics): incompressible water with depth
+            // pressure. OFF BY DEFAULT: it changes how every pool in a save behaves, so nothing turns
+            // it on but an explicit opt-in, `--mod1-hydrostatics`. Without it, this block does
+            // nothing at all: the mode row stays at its stock 0 and the vent patch is not installed,
+            // so a normal launch runs vanilla's liquid untouched.
+            // The row is not saved, so the opt-in is re-sent at every opening; a save opened
+            // without it is a vanilla save. The vent patch makes a submerged Liquid Vent push
+            // against the head up to its rating instead of stopping at any full cell, which is
+            // what a vanilla vent would otherwise do with hydrostatics on (where no cell holds more
+            // than its maxMass).
+            string[] launchArgs = System.Environment.GetCommandLineArgs();
+
+            if (System.Array.IndexOf(launchArgs, "--mod1-hydrostatics") >= 0)
+            {
+                OniFramework.Hydrostatics.InstallVentPatch(harmony);
+                OniFramework.SimExtRegistrar.Opening += () =>
+                {
+                    OniFramework.SimTunableResult r = OniFramework.Hydrostatics.Enable(carryOwner);
+                    Debug.Log("[Mod1ThermoFluid] hydrostatics opted in: HydrostaticsEnabled -> " + r);
+                };
+            }
 
             // The power -> heat rule: energy a building draws becomes heat in its own structure
             // temperature, and none is deleted. Lives in the framework so a

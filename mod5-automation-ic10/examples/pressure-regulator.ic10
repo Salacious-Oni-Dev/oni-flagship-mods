@@ -1,0 +1,17 @@
+# Hold a room at a pressure by opening a gas valve in proportion to the shortfall.
+# d0: an atmo sensor in the room (Pressure, kPa; needs the expanded simulation).
+# d1: a gas valve feeding the room (Setting, g/s).
+alias room d0
+alias valve d1
+define target 100   # kPa
+define gain 50      # g/s per kPa short
+loop:
+l r0 room Pressure
+sub r1 target r0
+mul r1 r1 gain
+l r2 valve Maximum
+max r1 r1 0
+min r1 r1 r2
+s valve Setting r1
+yield
+j loop

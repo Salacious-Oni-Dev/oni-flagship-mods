@@ -1,0 +1,13 @@
+# Keep a bin stocked: run a machine's recipe while the bin holds less than a target.
+# d0: a machine with recipes (kiln, rock crusher, metal refinery...). d1: a storage bin.
+alias machine d0
+alias bin d1
+define product HASH("Ceramic")
+define target 400        # kilograms
+s machine RecipeHash product
+loop:
+l r0 bin Quantity
+slt r1 r0 target
+s machine Activate r1    # 1 orders the recipe without end, 0 cancels it
+yield
+j loop

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net48 is what the game loads (the same target as every mod here). net8.0 is what the
+         offline tests run on. Building both on every build is the check that nothing here
+         uses an API the game's runtime does not have. -->
+    <TargetFrameworks>net48;net8.0</TargetFrameworks>
+    <RootNamespace>Ic10</RootNamespace>
+    <AssemblyName>Ic10</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <!-- As the shared props file sets for every other project: no pdb, so the DLL records no
+         build path. -->
+    <DebugType>none</DebugType>
+    <!-- Source files are picked up by the SDK's default glob. The other projects in this repo
+         list theirs by hand because the shared props file turns the glob off; this directory
+         does not inherit that file. -->
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

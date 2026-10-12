@@ -364,14 +364,42 @@ namespace Mod1ThermoFluid
         private const int LedgerSlots = 8;
 
         /// <summary>
-        /// The rate cap, as the pressure this vent can move in one second -- Stationeers'
-        /// `PressurePerTick`, which is a per-prefab serialized field there and a constant here.
-        /// Five atmospheres per second: the setpoints, not the rate, should be what the player
-        /// tunes, and at one atmosphere the rate was quietly doing the tuning instead. A conduit
-        /// tile is ten litres against a twenty-five cubic metre room, so a rate expressed as a
-        /// pressure per second is far more restrictive on the pipe side than it reads.
+        /// The ACTIVE VENT's rate cap (<see cref="StationeersRate"/>), as the pressure it can move
+        /// in one second, applied over the vent's own port cells (<see cref="PortCells"/>), not
+        /// the whole room.
+        ///
+        /// Stationeers' value, read from the StructureActiveVent prefab
+        /// (rocketstation_Data/resources.assets, DeviceAtmospherics.pressurePerTick, anchored on
+        /// the ConnectionType 1028 and OpenEndsPermutation that follow it): 10 kPa per atmospheric
+        /// tick, and a tick is 500 ms (GameManager.DefaultTickSpeedMs), so 20 kPa a second.
+        /// `ActiveVent.PumpGasToWorld` / `PumpGasToPipe` size it over `worldAtmosphere.Volume`,
+        /// the one 2 m grid cell the vent sits in (8 m3); the eight port cells here are 8 m3 too,
+        /// so the cap is the same number of moles a second.
+        ///
+        /// History: the Active Vent first used <see cref="RoomRatePressurePerSecondPa"/> over the
+        /// WHOLE ROOM's volume, which scaled the cap with the room: an airlock test's chamber emptied
+        /// into the pipe in one tick. It now applies Stationeers' rate to the cells it breathes
+        /// through, not the whole room.
         /// </summary>
-        private const float RatePressurePerSecondPa = 506625f;
+        internal const float StationeersActiveVentRatePa = 20000f;
+
+        /// <summary>
+        /// Mod 1's own rate, five atmospheres a second over the whole room: the Air Intake's and
+        /// the Air Diffuser's, and the Passive mode's clamp. The setpoints, not the rate, should be
+        /// what the player tunes, and at one atmosphere the rate was quietly doing the tuning
+        /// instead. A conduit tile is ten litres against a twenty-five cubic metre room, so a rate
+        /// expressed as a pressure per second is far more restrictive on the pipe side than it
+        /// reads. Left as it was: the air-loop test's intake and diffusers are tuned on it, and
+        /// Stationeers' passive vent (`AtmosphereHelper.Mix`) has no PressurePerTick at all.
+        /// </summary>
+        private const float RoomRatePressurePerSecondPa = 506625f;
+
+        /// <summary>
+        /// True on the Active Vent (ActiveVent.cs): Stationeers' rate over the port cells, and the
+        /// vent's whole run levelled to one pressure. False (the Air Intake, the Air Diffuser):
+        /// Mod 1's room rate over the room, the run left to vanilla's mover.
+        /// </summary>
+        public bool StationeersRate;
 
         /// <summary>How far the vent reaches into the room, in tiles. Vanilla's Gas Pump has one.</summary>
         private const int Radius = 3;
@@ -436,6 +464,13 @@ namespace Mod1ThermoFluid
 
         private Building building;
         private Operational operational;
+        private OniFramework.ReversibleConduitPort reversiblePort;
+
+        /// <summary>
+        /// How many cells of its room a vent's port reaches: one Stationeers atmosphere cell, 2 m
+        /// on a side, is 8 m3, eight of our 1 m3 cells. See <see cref="CollectPort"/>.
+        /// </summary>
+        private const int PortCells = 8;
 
         /// <summary>Scratch, reused every tick so a per-tick sweep allocates nothing.</summary>
         private readonly System.Collections.Generic.List<int> reach =
@@ -457,6 +492,15 @@ namespace Mod1ThermoFluid
         /// </summary>
         private readonly System.Collections.Generic.Dictionary<ushort, float> portMassBySpecies =
             new System.Collections.Generic.Dictionary<ushort, float>();
+
+        /// <summary>The Active Vent's inward species rotation (PumpMixtureToPipe).</summary>
+        private int mixtureTurn;
+
+        /// <summary>Scratch for the Active Vent's mixed-run pumps.</summary>
+        private readonly System.Collections.Generic.List<ushort> mixtureSpecies =
+            new System.Collections.Generic.List<ushort>();
+        private readonly System.Collections.Generic.List<GasMixtureFacade.GasParcel> releasedParcels =
+            new System.Collections.Generic.List<GasMixtureFacade.GasParcel>();
 
         /// <summary>
         /// Scratch for <see cref="GasMixtureFacade.ReadComposition"/>, which fills the caller's
@@ -486,6 +530,7 @@ namespace Mod1ThermoFluid
             base.OnSpawn();
             building = GetComponent<Building>();
             operational = GetComponent<Operational>();
+            reversiblePort = GetComponent<OniFramework.ReversibleConduitPort>();
             if (ledgerElementIdx == null || ledgerElementIdx.Length != LedgerSlots)
             {
                 ledgerElementIdx = NewEmptyLedger();
@@ -536,9 +581,16 @@ namespace Mod1ThermoFluid
                 return;
             }
 
-            int pipeCell = Direction == VentDirection.Inward
-                ? building.GetUtilityOutputCell()
-                : building.GetUtilityInputCell();
+            // The Active Vent's one port changes role with its mode (ActiveVent.cs), so it is not
+            // a def port and the def's utility cells do not name it.
+            int pipeCell = reversiblePort != null ? reversiblePort.PortCell
+                : Direction == VentDirection.Inward
+                    ? building.GetUtilityOutputCell()
+                    : building.GetUtilityInputCell();
+            if (!Grid.IsValidCell(pipeCell))
+            {
+                return;
+            }
             if (!gasFlow.HasConduit(pipeCell))
             {
                 return;
@@ -552,6 +604,11 @@ namespace Mod1ThermoFluid
             int origin = Grid.PosToCell(this);
             if (!Grid.IsValidCell(origin))
             {
+                return;
+            }
+            if (!GasMixtureFacade.IsRoomOwned(origin))
+            {
+                PromoteOwnRoom(origin);
                 return;
             }
             int roomCellCount;
@@ -568,7 +625,18 @@ namespace Mod1ThermoFluid
                 return;
             }
 
+            // A VACUUM HAS NO TEMPERATURE, AND AN EMPTY ROOM IS STILL A ROOM TO FILL. The vent's
+            // own cell reads 0 K when it holds nothing, and that used to return here, so a vent
+            // could never start filling a true vacuum: an airlock test whose chamber emptied to
+            // exactly 0 held 4.1 kg in the pipe at 2.1 MPa,
+            // Outward and on, and released nothing. Stationeers' blend weights each side by its
+            // moles (`ActiveVent.OnAtmosphericTick`, totalTemperature), so an empty room simply
+            // takes the pipe's temperature, and so does this; only both sides empty stops it.
             float roomTemperatureK = Grid.Temperature[origin];
+            if (roomTemperatureK <= 0f)
+            {
+                roomTemperatureK = pipe.TemperatureK;
+            }
             if (roomTemperatureK <= 0f)
             {
                 return;
@@ -580,7 +648,7 @@ namespace Mod1ThermoFluid
             float pipeTemperatureK = pipe.TemperatureK > 0f ? pipe.TemperatureK : roomTemperatureK;
             float blendTemperatureK = (roomTemperatureK + pipeTemperatureK) * 0.5f;
 
-            float ratePa = RatePressurePerSecondPa * dt;
+            float ratePa = (StationeersRate ? StationeersActiveVentRatePa : RoomRatePressurePerSecondPa) * dt;
             if (Direction == VentDirection.Passive)
             {
                 Equalise(gasFlow, pipeCell, pipe, roomPressurePa, roomVolumeM3, pipeVolumeM3,
@@ -597,7 +665,89 @@ namespace Mod1ThermoFluid
                 PumpToRoom(gasFlow, pipeCell, pipe, roomPressurePa, roomVolumeM3, pipeVolumeM3,
                     blendTemperatureK, ratePa, dt);
             }
+            if (StationeersRate)
+            {
+                LevelOwnRun(pipeCell);
+            }
         }
+
+        /// <summary>
+        /// ONE PRESSURE ACROSS THE VENT'S WHOLE RUN, as a Stationeers pipe network is one
+        /// atmosphere (`PipeNetwork.Atmosphere`, which `ActiveVent` reads and writes). Added after
+        /// an airlock test's trace showed the chamber's 4.1 kg sitting in the one
+        /// tile under the vent while the other 14 tiles of its dead-end pipe held nothing:
+        /// vanilla's per-tile mover only pushes towards a consumer, and a dead end has none.
+        /// The same call Compressor.cs makes on its lines. A gas run is levelled as one mixture, species by tile, and the
+        /// vent pumps air into and out of it whole (PumpMixtureToPipe, ReleaseMixtureToRoom). Levelling also lets the pipe overlay's arrows and vanilla's
+        /// moving blobs show the flow along the run (PipeFlowField's levelled solver).
+        /// Active Vent only (<see cref="StationeersRate"/>); the Air Intake's and Diffuser's runs
+        /// were not asked about and AIRLOOP is tuned on them.
+        /// </summary>
+        private static void LevelOwnRun(int pipeCell)
+        {
+            GasMixtureFacade.EqualizePipeNetwork(pipeCell);
+        }
+
+        /// <summary>
+        /// THE VENT PROMOTES ITS OWN ROOM, as every new-sim building does (Injector.cs). Every read and move above is the mixture's, so in a
+        /// room the new engine does not own the vent reached no cell and moved nothing, silently:
+        /// one airlock test drew 0.000 kg out of a sealed oxygen chamber for 160
+        /// seconds, on, powered, Inward, setpoints right, while the program waited for a vacuum
+        /// that never came. Every Mod 1 demo promotes its rooms itself, which hid this.
+        ///
+        /// `PromoteRoomWithGas` promotes now and moves the room's vanilla gas into the mixture,
+        /// so the next tick has something to draw. It answers NoRoom while this world has no room
+        /// graph at all (the graph exists only once the mixture layer is active, SimRooms' class
+        /// summary); `PromoteRoom` activates the layer, and the call one tick later lands. A
+        /// promotion outlives the graph's rebuilds (gas_rooms.h, `RoomPromoted`), which a door
+        /// opening or closing causes, so a room merged with this one is promoted with it.
+        ///
+        /// Called only while the vent's own cell is not room-owned, so the synchronous call is
+        /// paid once per room, not per tick.
+        /// </summary>
+        private void PromoteOwnRoom(int origin)
+        {
+            GasMixtureFacade.PromoteWithGasResult result = GasMixtureFacade.PromoteRoomWithGas(origin, out float movedKg);
+            if (result == GasMixtureFacade.PromoteWithGasResult.Promoted
+                || result == GasMixtureFacade.PromoteWithGasResult.AlreadyPromoted)
+            {
+                return;
+            }
+            GasMixtureFacade.PromoteRoom(origin);
+            promoteAttempts++;
+            // Two ticks are what activation and a promotion need; ten without a room is a vent
+            // that cannot work here, and it says so once rather than standing still in silence.
+            if (promoteAttempts == 10 && !warnedNoRoom)
+            {
+                warnedNoRoom = true;
+                Debug.LogWarning(LogPrefix + "vent at cell " + origin + " has no room the new engine owns after "
+                    + promoteAttempts + " promotions (" + result + "); it moves no gas until it has one.");
+            }
+        }
+
+        private int promoteAttempts;
+        private bool warnedNoRoom;
+
+        /// <summary>The volume the rate cap is sized over: with <see cref="StationeersRate"/> the
+        /// cells this vent breathes through this tick (at most <see cref="PortCells"/>, 8 m3,
+        /// Stationeers' one grid cell); otherwise the room.</summary>
+        private float RateVolumeM3(float roomVolumeM3)
+        {
+            return StationeersRate ? Mathf.Max(1, reach.Count) * PipeNetworkFacade.CellVolumeM3 : roomVolumeM3;
+        }
+
+        /// <summary>The pressure the setpoint is compared with: with <see cref="StationeersRate"/>
+        /// the mean over the cells this vent breathes through, as the Stationeers Active Vent reads
+        /// its own cell; otherwise the room's mean. It used to be the room's for every vent, and a
+        /// life-support test's oxygen vent stopped on a room mean of
+        /// 100.00 kPa while the cells between it and the far wall stood at up to 116.8 kPa: the sensor read the overshoot for 15 s while it evened out.</summary>
+        private float SetpointPressurePa(float roomPressurePa)
+        {
+            return StationeersRate ? portPressurePa : roomPressurePa;
+        }
+
+        /// <summary>The mean pressure over <see cref="reach"/>, set by CollectAndMeasure.</summary>
+        private float portPressurePa;
 
         /// <summary>
         /// Stationeers' PASSIVE VENT, ported: equalise the pipe and the room, whichever way that
@@ -637,7 +787,7 @@ namespace Mod1ThermoFluid
             // against 15.7 with the clamp in place. A vent that equalises a 10-litre pipe against
             // a 25 m3 room in one tick is not a vent, it is a step change.
             float differencePa = pipe.PressurePa - roomPressurePa;
-            float rateLimitPa = RatePressurePerSecondPa * dt;
+            float rateLimitPa = RoomRatePressurePerSecondPa * dt;
             if (differencePa > 0f)
             {
                 // Duct is the higher side: it vents into the room.
@@ -662,18 +812,28 @@ namespace Mod1ThermoFluid
             float roomPressurePa, float roomVolumeM3, float pipeVolumeM3, float temperatureK,
             float ratePa, float dt)
         {
-            float roomExcessPa = roomPressurePa - externalPressurePa;
+            float roomExcessPa = SetpointPressurePa(roomPressurePa) - externalPressurePa;
             if (roomExcessPa <= 0f)
             {
                 return;
             }
-            float allowedByRoom = AtmosphereFacade.MolesFromPressurePa(
-                Mathf.Min(ratePa, roomExcessPa), roomVolumeM3, temperatureK);
+            // Stationeers takes the smaller of the two PRESSURES (rate, distance to the setpoint)
+            // over its one cell's volume. With StationeersRate both are read and sized over the
+            // vent's own cells (SetpointPressurePa, RateVolumeM3); otherwise the setpoint is the
+            // room's, its mean pressure over its volume.
+            float allowedByRoom = Mathf.Min(
+                AtmosphereFacade.MolesFromPressurePa(ratePa, RateVolumeM3(roomVolumeM3), temperatureK),
+                AtmosphereFacade.MolesFromPressurePa(roomExcessPa, RateVolumeM3(roomVolumeM3), temperatureK));
             float allowedByPipe = AtmosphereFacade.MolesFromPressurePa(
                 internalPressurePa - pipe.PressurePa, pipeVolumeM3, temperatureK);
             float transferMoles = Mathf.Min(allowedByRoom, allowedByPipe);
             if (transferMoles <= 0f)
             {
+                return;
+            }
+            if (StationeersRate)
+            {
+                PumpMixtureToPipe(pipeCell, transferMoles, temperatureK, dt);
                 return;
             }
 
@@ -724,8 +884,14 @@ namespace Mod1ThermoFluid
             // Reaching along the vent's OWN outlet network is the same move the skimmer makes at
             // its inlet, and it is what a duct physically is: the vent is connected to all of it,
             // not to one tile of it.
-            float accepted = AddToNetwork(gasFlow, pipeCell, element.id, takeKg,
-                Grid.Temperature[reach[0]]);
+            // Counted at the vent's own port tile wherever on the run it lands, so the pipe
+            // overlay's burst is drawn on the vent (PipeFlowArrows).
+            float accepted;
+            using (PipeFlowField.AttributeTo(pipeCell))
+            {
+                accepted = AddToNetwork(gasFlow, pipeCell, element.id, takeKg,
+                    Grid.Temperature[reach[0]]);
+            }
             if (accepted <= 0f)
             {
                 // The pipe tile is full, or holds a different species this tick. Nothing leaves
@@ -733,11 +899,129 @@ namespace Mod1ThermoFluid
                 return;
             }
 
-            // Spread across the reach in proportion to what each cell holds of this species, so no
-            // one tile is emptied while its neighbours stay full. Mixture -> nowhere, in two
-            // steps, asking for exactly what the composition says is there so the atomic message's
-            // own clamp can never bite (see AirHandling's class doc).
-            float shareFraction = accepted / availableKg;
+            RemoveFromReach(speciesIdx, accepted / availableKg);
+
+            RecordExtraction(speciesIdx, accepted);
+            DrawnKg += accepted;
+            MeasuredKgPerSecond = accepted / dt;
+        }
+
+        /// <summary>
+        /// The Active Vent's inward pump: the room's species in proportion over each turn
+        /// of a one-species-a-tick rotation (see the comment below for why not all in one tick),
+        /// into the vent's run as one mixture (<see cref="GasMixtureFacade.AddToGasRun"/>), so air
+        /// goes down the pipe as air. The port's own stock sets the composition, and each species
+        /// leaves the reach by exactly what the run accepted of it.
+        /// </summary>
+        private void PumpMixtureToPipe(int pipeCell, float transferMoles, float fallbackTemperatureK,
+            float dt)
+        {
+            float portMoles = 0f;
+            foreach (System.Collections.Generic.KeyValuePair<ushort, float> entry in portMassBySpecies)
+            {
+                if (entry.Value > 0f)
+                {
+                    portMoles += entry.Value * GramsPerKilogram
+                        / AtmosphereFacade.MolarMassGPerMol(entry.Key);
+                }
+            }
+            if (portMoles <= 0f)
+            {
+                return;
+            }
+            // ALL OF IT once the transfer covers the port's stock to within 0.1%. The room's
+            // excess is read at the blended pipe/room temperature and the port's moles at their
+            // own, so the two never agree exactly and a proportional draw alone decays forever:
+            // an airlock test sat at ~1e-30 kPa, displayed 0.000, while its program (`bgt r0 0`)
+            // waited for a true zero. Mass is still exact: each species
+            // leaves the reach by what the run accepted of it.
+            float fraction = transferMoles >= portMoles * 0.999f
+                ? 1f
+                : transferMoles / portMoles;
+            mixtureSpecies.Clear();
+            foreach (System.Collections.Generic.KeyValuePair<ushort, float> entry in portMassBySpecies)
+            {
+                if (entry.Value > 0f && entry.Key < ElementLoader.elements.Count
+                    && ElementLoader.elements[entry.Key] != null && ElementLoader.elements[entry.Key].IsGas)
+                {
+                    mixtureSpecies.Add(entry.Key);
+                }
+            }
+            if (mixtureSpecies.Count == 0)
+            {
+                return;
+            }
+            mixtureSpecies.Sort();
+            // ONE SPECIES A TICK, ITS SHARE TIMES THE SPECIES COUNT, rotating: over one turn of the
+            // rotation every species leaves at the same fraction, so the composition is kept and
+            // the rate is the same on average. Not all species in one tick, because the room side
+            // leaves through vanilla's layer (ConvertToVanilla, then RemoveVanillaMass), which
+            // holds ONE element a cell: a second species converted into a cell in the same tick
+            // displaced the first into the neighbouring cells, under the promoted chamber where
+            // nothing reads it, while the run had already accepted it. In one airlock
+            // test the 4.6 kg chamber put 8.3 kg into its pipe and 87 kPa of hidden gas
+            // surfaced once the mixture emptied.
+            ushort speciesIdx = mixtureSpecies[mixtureTurn++ % mixtureSpecies.Count];
+            portMassBySpecies.TryGetValue(speciesIdx, out float availableKg);
+            float temperatureK = SpeciesTemperatureK(speciesIdx, fallbackTemperatureK);
+            float wantKg = fraction >= 1f
+                ? availableKg
+                : Mathf.Min(availableKg, availableKg * fraction * mixtureSpecies.Count);
+            float accepted = GasMixtureFacade.AddToGasRun(pipeCell,
+                ElementLoader.elements[speciesIdx].id, wantKg, temperatureK);
+            if (accepted <= 0f)
+            {
+                // The run is full, or has no tile left for one more species. This species stays
+                // in the room this tick; the rotation moves on.
+                return;
+            }
+            RemoveFromReach(speciesIdx, accepted / availableKg);
+            RecordExtraction(speciesIdx, accepted);
+            float drawnKg = accepted;
+            DrawnKg += drawnKg;
+            MeasuredKgPerSecond = drawnKg / dt;
+        }
+
+        /// <summary>
+        /// The temperature <paramref name="speciesIdx"/> leaves the room at: the cells that hold
+        /// it, weighted by how much. Not the vent's own tile: once that tile is empty its
+        /// temperature reads 0 K, the run refuses gas at 0 K, and the last trace in a far cell
+        /// never leaves (in an airlock test, 21 micrograms of oxygen, 0.001 kPa, which the
+        /// test's program waited on as not yet a vacuum).
+        /// </summary>
+        private float SpeciesTemperatureK(ushort speciesIdx, float fallbackK)
+        {
+            double weighted = 0.0, weight = 0.0;
+            for (int c = 0; c < reach.Count; c++)
+            {
+                int cell = reach[c];
+                float cellK = Grid.Temperature[cell];
+                if (cellK <= 0f)
+                {
+                    continue;
+                }
+                int slots = GasMixtureFacade.ReadComposition(cell, compositionSpecies, compositionMassKg);
+                for (int i = 0; i < slots; i++)
+                {
+                    if (compositionSpecies[i] == speciesIdx && compositionMassKg[i] > 0f)
+                    {
+                        weighted += (double)compositionMassKg[i] * cellK;
+                        weight += compositionMassKg[i];
+                    }
+                }
+            }
+            return weight > 0.0 ? (float)(weighted / weight) : fallbackK;
+        }
+
+        /// <summary>
+        /// Takes <paramref name="shareFraction"/> of what each reach cell holds of one species out
+        /// of the room. Spread across the reach in proportion to what each cell holds, so no one
+        /// tile is emptied while its neighbours stay full. Mixture -> nowhere, in two steps,
+        /// asking for exactly what the composition says is there so the atomic message's own
+        /// clamp can never bite (see AirHandling's class doc).
+        /// </summary>
+        private void RemoveFromReach(ushort speciesIdx, float shareFraction)
+        {
             for (int c = 0; c < reach.Count; c++)
             {
                 int cell = reach[c];
@@ -760,10 +1044,6 @@ namespace Mod1ThermoFluid
                     GasMixtureFacade.RemoveVanillaMass(cell, fromThisCell);
                 }
             }
-
-            RecordExtraction(speciesIdx, accepted);
-            DrawnKg += accepted;
-            MeasuredKgPerSecond = accepted / dt;
         }
 
         /// <summary>
@@ -777,10 +1057,11 @@ namespace Mod1ThermoFluid
         {
             float pipeExcessMoles = AtmosphereFacade.MolesFromPressurePa(
                 pipe.PressurePa - internalPressurePa, pipeVolumeM3, temperatureK);
-            float roomHeadroomPa = Mathf.Clamp(
-                Mathf.Min(ratePa, externalPressurePa - roomPressurePa), 0f, ratePa);
-            float roomHeadroomMoles = AtmosphereFacade.MolesFromPressurePa(roomHeadroomPa,
-                roomVolumeM3, temperatureK);
+            // Setpoint and rate cap over the same volume, as in PumpToPipe.
+            float roomHeadroomPa = Mathf.Max(0f, externalPressurePa - SetpointPressurePa(roomPressurePa));
+            float roomHeadroomMoles = Mathf.Min(
+                AtmosphereFacade.MolesFromPressurePa(ratePa, RateVolumeM3(roomVolumeM3), temperatureK),
+                AtmosphereFacade.MolesFromPressurePa(roomHeadroomPa, RateVolumeM3(roomVolumeM3), temperatureK));
             float transferMoles = Mathf.Min(pipeExcessMoles, roomHeadroomMoles);
             ReleaseToRoom(gasFlow, pipeCell, transferMoles, temperatureK, dt);
         }
@@ -791,6 +1072,11 @@ namespace Mod1ThermoFluid
         {
             if (transferMoles <= 0f)
             {
+                return;
+            }
+            if (StationeersRate)
+            {
+                ReleaseMixtureToRoom(pipeCell, transferMoles, temperatureK, dt);
                 return;
             }
 
@@ -821,7 +1107,11 @@ namespace Mod1ThermoFluid
                 return;
             }
 
-            ConduitFlow.ConduitContents taken = gasFlow.RemoveElement(sourceCell, takeKg);
+            ConduitFlow.ConduitContents taken;
+            using (PipeFlowField.AttributeTo(pipeCell))
+            {
+                taken = gasFlow.RemoveElement(sourceCell, takeKg);
+            }
             if (taken.mass <= 0f)
             {
                 return;
@@ -852,19 +1142,7 @@ namespace Mod1ThermoFluid
             // rather than splitting evenly, because the levelling property is the point: the
             // thinnest tile in the reach should still take the largest share whether or not the
             // room as a whole happens to sit above one atmosphere.
-            float totalWeight = 0f;
-            for (int c = 0; c < reach.Count; c++)
-            {
-                totalWeight += Mathf.Max(0f, CellHeadroomKg(reach[c], temperatureK));
-            }
-            bool byHeadroom = totalWeight > 0f;
-            if (!byHeadroom)
-            {
-                for (int c = 0; c < reach.Count; c++)
-                {
-                    totalWeight += ReciprocalPressureWeight(reach[c]);
-                }
-            }
+            float totalWeight = ReachTotalWeight(temperatureK, out bool byHeadroom);
             if (totalWeight <= 0f)
             {
                 // Genuinely nowhere to put it -- no reach at all. Straight back into the pipe
@@ -882,23 +1160,95 @@ namespace Mod1ThermoFluid
                 return;
             }
 
-            // Straight into the MIXTURE, not vanilla's single-element layer: air arriving in a
-            // room whose atmosphere is a mixture has to join that mixture.
+            InjectAcrossReach(speciesIdx, taken.mass, taken.temperature, temperatureK, byHeadroom,
+                totalWeight);
+
+            ReleasedKg += taken.mass;
+            MeasuredKgPerSecond = taken.mass / dt;
+        }
+
+        /// <summary>
+        /// The Active Vent's outward pump: the moles leave the run as the mixture it
+        /// holds, every species in proportion (<see cref="GasMixtureFacade.RemoveFromGasRun"/>,
+        /// as Stationeers removes gas from a mixture), and each species joins the
+        /// room's mixture over the reach by the same weights as the single-species path. The
+        /// reach is checked first so nothing is taken out of the pipe that has nowhere to go.
+        /// </summary>
+        private void ReleaseMixtureToRoom(int pipeCell, float transferMoles, float temperatureK,
+            float dt)
+        {
+            float totalWeight = ReachTotalWeight(temperatureK, out bool byHeadroom);
+            if (totalWeight <= 0f)
+            {
+                return;
+            }
+            releasedParcels.Clear();
+            if (GasMixtureFacade.RemoveFromGasRun(pipeCell, transferMoles, releasedParcels) <= 0f)
+            {
+                return;
+            }
+            float releasedKg = 0f;
+            for (int p = 0; p < releasedParcels.Count; p++)
+            {
+                GasMixtureFacade.GasParcel parcel = releasedParcels[p];
+                Element element = ElementLoader.FindElementByHash(parcel.Element);
+                int speciesIdx = element != null ? ElementLoader.elements.IndexOf(element) : -1;
+                if (speciesIdx < 0 || parcel.MassKg <= 0f)
+                {
+                    if (parcel.MassKg > 0f)
+                    {
+                        Debug.LogWarning(LogPrefix + "released " + parcel.MassKg.ToString("0.######")
+                            + " kg of unknown " + parcel.Element + "; it was dropped");
+                    }
+                    continue;
+                }
+                InjectAcrossReach(speciesIdx, parcel.MassKg, parcel.TemperatureK, temperatureK,
+                    byHeadroom, totalWeight);
+                releasedKg += parcel.MassKg;
+            }
+            ReleasedKg += releasedKg;
+            MeasuredKgPerSecond = releasedKg / dt;
+        }
+
+        /// <summary>
+        /// The release weights' total over the reach: headroom under the setpoint where any cell
+        /// has some, else reciprocal pressure. See the comment in <see cref="ReleaseToRoom"/>.
+        /// </summary>
+        private float ReachTotalWeight(float temperatureK, out bool byHeadroom)
+        {
+            float totalWeight = 0f;
+            for (int c = 0; c < reach.Count; c++)
+            {
+                totalWeight += Mathf.Max(0f, CellHeadroomKg(reach[c], temperatureK));
+            }
+            byHeadroom = totalWeight > 0f;
+            if (!byHeadroom)
+            {
+                for (int c = 0; c < reach.Count; c++)
+                {
+                    totalWeight += ReciprocalPressureWeight(reach[c]);
+                }
+            }
+            return totalWeight;
+        }
+
+        /// <summary>Straight into the MIXTURE, not vanilla's single-element layer: air arriving
+        /// in a room whose atmosphere is a mixture has to join that mixture.</summary>
+        private void InjectAcrossReach(int speciesIdx, float massKg, float parcelTemperatureK,
+            float temperatureK, bool byHeadroom, float totalWeight)
+        {
             for (int c = 0; c < reach.Count; c++)
             {
                 float weight = byHeadroom
                     ? Mathf.Max(0f, CellHeadroomKg(reach[c], temperatureK))
                     : ReciprocalPressureWeight(reach[c]);
-                float shareKg = taken.mass * (weight / totalWeight);
+                float shareKg = massKg * (weight / totalWeight);
                 if (shareKg <= 0f)
                 {
                     continue;
                 }
-                GasMixtureFacade.Inject(reach[c], speciesIdx, shareKg, taken.temperature);
+                GasMixtureFacade.Inject(reach[c], speciesIdx, shareKg, parcelTemperatureK);
             }
-
-            ReleasedKg += taken.mass;
-            MeasuredKgPerSecond = taken.mass / dt;
         }
 
         /// <summary>
@@ -941,7 +1291,11 @@ namespace Mod1ThermoFluid
             {
                 return;
             }
-            float accepted = AddToNetwork(gasFlow, pipeCell, element.id, takeKg, temperatureK);
+            float accepted;
+            using (PipeFlowField.AttributeTo(pipeCell))
+            {
+                accepted = AddToNetwork(gasFlow, pipeCell, element.id, takeKg, temperatureK);
+            }
             if (accepted <= 0f)
             {
                 return;
@@ -1128,12 +1482,24 @@ namespace Mod1ThermoFluid
                 roomPressurePa = room.MeanPressurePa;
                 roomCellCount = room.CellCount;
                 CollectPort(origin, room.RoomId);
+                float portSum = 0f;
+                int portRead = 0;
+                for (int c = 0; c < reach.Count; c++)
+                {
+                    if (GasMixtureFacade.TryGetPressure(reach[c], out float cellPressurePa))
+                    {
+                        portSum += cellPressurePa;
+                        portRead++;
+                    }
+                }
+                portPressurePa = portRead > 0 ? portSum / portRead : roomPressurePa;
             }
             else
             {
                 CollectDiamond(origin);
                 roomPressurePa = MeasureDiamond();
                 roomCellCount = reach.Count;
+                portPressurePa = roomPressurePa;
             }
 
             SumPort();
@@ -1141,8 +1507,22 @@ namespace Mod1ThermoFluid
         }
 
         /// <summary>
-        /// The cells this vent physically breathes through: its own tile and its four neighbours,
-        /// kept only where they are in the SAME room the vent is in.
+        /// The cells this vent physically breathes through: the <see cref="PortCells"/> cells of
+        /// its own room nearest its tile, its own tile first, found breadth first through the room
+        /// so they never cross a wall or a door. It used to be its own tile and its four
+        /// neighbours (five at most, three in a 2x2 airlock chamber), and the text below is that
+        /// rule's reasoning, kept because it still holds for why the port is small.
+        ///
+        /// <b>ONE STATIONEERS ATMOSPHERE CELL.</b> A Stationeers vent works on
+        /// the atmosphere of its own grid cell, and that grid is 2 m: 8 m3, so eight of our 1 m3
+        /// cells. With five, an airlock test's 2x2 chamber drained only the three cells beside the
+        /// vent; a sensor there read exactly 0 with the far cell at 1.87 kPa, and a sensor in the far
+        /// cell froze at 0.001 kPa when room mixing stopped moving the last milligrams, so the program,
+        /// which waits for exactly 0, either opened early or never. Eight cells hold the whole
+        /// chamber, as one Stationeers atmosphere holds a small airlock, and all of it reaches 0
+        /// together. In open space the port is still only eight cells, so the draught below
+        /// survives. This matches Stationeers by volume; eight (volume) over four (the 2x2
+        /// footprint) is a deliberate choice.
         ///
         /// <b>Radius one, not zero, and it is a throughput knob rather than a physical claim.</b>
         /// A single tile stalls: the inward pump can only take what that one tile holds this tick,
@@ -1158,16 +1538,24 @@ namespace Mod1ThermoFluid
         /// </summary>
         private void CollectPort(int origin, int roomId)
         {
+            // `reach` is its own breadth-first queue: each cell's neighbours are appended after
+            // it, so the list ends ordered by distance, and at most PortCells long the Contains
+            // check is cheaper than a visited set.
             AddPortCell(origin, roomId);
-            AddPortCell(Grid.CellLeft(origin), roomId);
-            AddPortCell(Grid.CellRight(origin), roomId);
-            AddPortCell(Grid.CellAbove(origin), roomId);
-            AddPortCell(Grid.CellBelow(origin), roomId);
+            for (int i = 0; i < reach.Count && reach.Count < PortCells; i++)
+            {
+                int cell = reach[i];
+                AddPortCell(Grid.CellLeft(cell), roomId);
+                AddPortCell(Grid.CellRight(cell), roomId);
+                AddPortCell(Grid.CellAbove(cell), roomId);
+                AddPortCell(Grid.CellBelow(cell), roomId);
+            }
         }
 
         private void AddPortCell(int cell, int roomId)
         {
-            if (Grid.IsValidCell(cell) && SimRooms.RoomId(cell) == roomId)
+            if (reach.Count < PortCells && Grid.IsValidCell(cell) && SimRooms.RoomId(cell) == roomId
+                && !reach.Contains(cell))
             {
                 reach.Add(cell);
             }

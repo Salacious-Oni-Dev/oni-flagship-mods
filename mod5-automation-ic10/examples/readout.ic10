@@ -1,0 +1,10 @@
+# Show a sensor's temperature on an IC Display, in kelvin.
+# d0: a sensor. d1: an IC Display.
+alias sensor d0
+alias display d1
+s display Mode 3    # LogicDisplay.DisplayMode.Kelvin
+loop:
+l r0 sensor Temperature
+s display Setting r0
+yield
+j loop

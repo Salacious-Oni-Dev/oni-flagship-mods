@@ -54,6 +54,9 @@ namespace Mod2MatterEnvironment
 		internal const string GasId = "Pollutant";
 		internal const string LiquidId = "LiquidPollutant";
 
+		/// <summary>The gas's SimHashes value, as ElementLoader derives it from <see cref="GasId"/>.</summary>
+		internal static readonly SimHashes GasHash = (SimHashes)Hash.SDBMLower(GasId);
+
 		/// <summary>
 		/// `MoleHelper.EvaporationCoefficientA/B` (Stationeers) for Pollutant. Named here as well as
 		/// passed below, because the phase points further down are derived from exactly these two

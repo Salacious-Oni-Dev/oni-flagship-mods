@@ -223,6 +223,16 @@ namespace Mod1ThermoFluid
             PipeMatterState.TickRecovery(gasConduit: true);
             PipeMatterState.TickRecovery(gasConduit: false);
 
+            // Managed-line leases. The framework only levels a
+            // line while one of this mod's tanks or pumps calls it, and until 0.104 a managed cell
+            // left the managed set only when its conduit was deconstructed: remove the Liquid
+            // Reservoir and the line kept vanilla's mover switched off (ConduitFlowPatch) for good,
+            // a dead line. A cell now holds a lease the levelling renews; nothing else prunes once
+            // the last tank is gone, so this 1 Hz scan does. Game time, so a paused game never
+            // lapses one. Before the stress pass below, so it collects only lines still managed.
+            GasMixtureFacade.PruneManagedConduitCells();
+            GasMixtureFacade.PruneManagedLiquidConduitCells();
+
             TickPressurePhaseChange();
 
             CollectStressedNetworks(GasMixtureFacade.ManagedConduitCells, PipeContentType.Gas);
@@ -550,13 +560,9 @@ namespace Mod1ThermoFluid
         /// SKIPPED WHILE QUITTING, which is Klei's own rule for the same walk. Vanilla's
         /// <c>StatusItemGroup.Destroy</c> wraps its entire removal loop in
         /// <c>if (!Game.IsQuitting())</c>, and the reason is one line inside
-        /// <c>StatusItemGroup.RemoveStatusItemInternal</c>:
-        ///
-        /// <code>
-        /// if (arg.notification != null) {
-        ///     gameObject.GetComponent&lt;Notifier&gt;().Remove(arg.notification);  // NOT guarded
-        /// }
-        /// </code>
+        /// <c>StatusItemGroup.RemoveStatusItemInternal</c>: when the entry carries a notification, it
+        /// fetches the object's <c>Notifier</c> component and removes the notification from it, with
+        /// no check that the component still exists.
         ///
         /// Both of this monitor's items call <c>AddNotification</c>, so <c>shouldNotify</c> is
         /// set and every attachment carries a notification -- which means every attachment takes

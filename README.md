@@ -3,10 +3,13 @@
 Gameplay mods for Oxygen Not Included built on the simulation SDK. They use only the public
 `OniFramework` API, so they are also working examples of what a third-party mod can do with it.
 
+*Oxygen Not Included: now with actual reasons for the oxygen to be not included.*
+
 | mod | folder | summary |
 |---|---|---|
-| Mod 1 — Physical Thermodynamics + Fluid Dynamics | [`mod1-thermo-fluid`](mod1-thermo-fluid/README.md) | heat that is moved instead of deleted, gas mixtures, pipe pressure, phase change with latent heat |
-| Mod 2 — Matter / Environmental Physics | [`mod2-matter-environment`](mod2-matter-environment/README.md) | nitrogen and pollutant as real elements, with their physical properties |
+| Mod 1 — Physical Thermodynamics + Fluid Dynamics | [`mod1-thermo-fluid`](mod1-thermo-fluid/README.md) | heat that is moved instead of deleted, gas mixtures, pipe pressure, phase change with latent heat, the Active Vent, the Steam Room |
+| Mod 2 — Matter / Environmental Physics | [`mod2-matter-environment`](mod2-matter-environment/README.md) | nitrogen, pollutant and soot as real elements with their physical properties; fire and smoke; hygiene; physical versions of the Hydrogen Generator, Electrolyzer and Campfire |
+| Mod 5 — Automation / IC10 | [`mod5-automation-ic10`](mod5-automation-ic10/README.md) | Stationeers' IC10 programmable chips, a data cable and logic units, reading and driving the game's own buildings |
 
 This is one part of the SDK. The replacement simulation library is in
 [oni-sim-replacement](https://github.com/Salacious-Oni-Dev/oni-sim-replacement), the API these mods call is in
@@ -17,6 +20,18 @@ as a whole are in [oni-sdk-docs](https://github.com/Salacious-Oni-Dev/oni-sdk-do
 
 **Windows only.** The simulation library is a Windows DLL, so the SDK needs the game's Windows
 version.
+
+## Alpha 2 (current release)
+
+Alpha 2 (`0.1.0-alpha.2`) gives Mod 1 the Active Vent, the Steam Room, germs that travel through
+pipes, and flow arrows, and Mod 2 fire, the Campfire, Sparker, Fire Sprinkler and Mash Tun, Soot,
+hygiene and a rebuilt Hydrogen Generator. It also adds a new mod, Mod 5: Stationeers' IC10
+programmable chips, reading and driving the game's own buildings (its art is AI placeholder
+art). Every mod declares API level 0.2.
+
+[Changelog](CHANGELOG.md) ·
+[Release notes](https://github.com/Salacious-Oni-Dev/oni-flagship-mods/releases/tag/v0.1.0-alpha.2) ·
+[What is in Alpha 2, and its known limitations](https://github.com/Salacious-Oni-Dev/oni-sdk-docs/blob/main/NEXT-ALPHA.md#alpha-2)
 
 ## Showcase videos
 
@@ -44,8 +59,8 @@ tooling and are not part of this repository.
 
 ## Requirements
 
-Both mods need the SDK's replacement `SimDLL.dll` and the `OniFramework` mod, from the same SDK
-release. See the SDK guide
+Every mod needs the SDK's replacement `SimDLL.dll` and the `OniFramework` and `OniFramework.Library`
+mods, from the same SDK release. See the SDK guide
 [Installing and removing](https://github.com/Salacious-Oni-Dev/oni-sdk-docs/blob/main/guides/installing.md).
 
 ## Building
@@ -65,11 +80,12 @@ parent/
 ```sh
 export ONI_GAME=/path/to/OxygenNotIncluded
 (cd ../oni-framework-api && ./build.sh)
-./build.sh                      # both mods
+./build.sh                      # every mod
 ./build.sh mod1-thermo-fluid    # one mod
 ```
 
 Each mod's output is its `bin/Release/` folder: the mod's DLL, `mod.yaml` and `mod_info.yaml`.
+Mod 5's also holds `Ic10.dll`, its building art (`anim/`) and example programs (`examples/`).
 It does not contain `OniFramework.dll`, and must not: the framework is installed once, as its
 own mod.
 
@@ -110,10 +126,10 @@ To build one mod, name its folder: `... -File oni-flagship-mods\build.ps1 mod1-t
 
 Copy each mod's folder into the game's local mods folder. From a
 [release](https://github.com/Salacious-Oni-Dev/oni-flagship-mods/releases), unpack `oni-flagship-mods-<version>.zip` and
-copy `mod1-thermo-fluid` and `mod2-matter-environment`. From a build, copy each mod's
+copy `mod1-thermo-fluid`, `mod2-matter-environment` and `mod5-automation-ic10`. From a build, copy each mod's
 `bin/Release/` contents into a folder of that name, for example
 `Documents/Klei/OxygenNotIncluded/mods/Local/mod1-thermo-fluid/`. Enable the mods in the game's
-Mods screen. `OniFramework` must be listed above both mods. If it is
+Mods screen. `OniFramework` must be listed above every mod. If it is
 below them, it moves itself up and restarts the game once, with a message before and after.
 
 ## License
@@ -124,6 +140,11 @@ MIT, see `LICENSE`.
 
 Oxygen Not Included is developed and published by Klei Entertainment. This project is not
 affiliated with or endorsed by Klei.
+Mod 5 follows Stationeers' IC10, by RocketWerkz; it is not affiliated with or endorsed by
+RocketWerkz, and its interpreter is not under the MIT licence (see `NOTICE`).
+How this project follows Klei's modding guidelines, rule by rule: [COMPLIANCE](https://github.com/Salacious-Oni-Dev/oni-sdk-docs/blob/main/COMPLIANCE.md).
 
-Development of this project uses AI coding assistants. All changes are reviewed and released
-by the maintainer.
+Development of this project uses AI coding assistants. All changes are reviewed, tested and
+released by the maintainer.
+
+The smoke system came from an idea by Kaz.

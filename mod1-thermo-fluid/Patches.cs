@@ -84,6 +84,11 @@ namespace Mod1ThermoFluid
             // pipe, so bundling it here costs nothing on a save that never builds one.
             overlayObject.AddComponent<PipeStressMonitor>();
 
+            // Flow arrows on every moving pipe tile and a burst on every vent or pump at work, in
+            // the Gas Ventilation and Plumbing overlays (PipeFlowArrows.cs). Draws nothing outside
+            // those two overlays.
+            overlayObject.AddComponent<PipeFlowArrows>();
+
             // The framework's live-inspection debug server (OniFramework.DebugInspectorServer):
             // HTTP on port 9788, queryable with a plain curl call while the game runs. It has no
             // authentication and listens on every interface, so it starts only when the launch

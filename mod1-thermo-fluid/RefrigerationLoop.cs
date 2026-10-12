@@ -68,7 +68,7 @@ namespace Mod1ThermoFluid
     /// Neither leg carries a number derived from a latent heat, so a change to the material
     /// tables does not re-tune the loop.
     /// </summary>
-    public class CompressorLinkComponent : MonoBehaviour
+    public class CompressorLinkComponent : MonoBehaviour, ISim1000ms
     {
         public GasMixtureTankComponent Evaporator;
         public GasMixtureTankComponent Condenser;
@@ -108,7 +108,7 @@ namespace Mod1ThermoFluid
         private const float MaxDrawdownPaPerSecond = 2000f;
 
         private const float SampleIntervalSeconds = 1f;
-        private float timer;
+        private DeviceTick tick;
 
         /// <summary>
         /// What this leg has actually moved, and at what temperature, since the run started.
@@ -151,15 +151,43 @@ namespace Mod1ThermoFluid
         // The freezing clamp itself is NOT the defect and is not touched here: bounding the vapour
         // curve to freezing..critical is Stationeers' own clamped evaporation temperature, and water evaporatively cooling below its own freezing point would be the
         // bug. Reaching that clamp is the defect. With a setpoint the leg cannot reach it.
-        private void Update()
-        {
-            timer += Time.deltaTime;
-            if (timer < SampleIntervalSeconds)
-            {
-                return;
-            }
-            timer = 0f;
+        // A plain MonoBehaviour is not registered with SimAndRenderScheduler the way a
+        // KMonoBehaviour is (KMonoBehaviour.Spawn), so it registers itself. OnEnable/OnDisable,
+        // not Start/OnDestroy: work runs exactly while the component is enabled, which is when the
+        // Update() this replaces ran.
+        private bool tickRegistered;
 
+        private void OnEnable()
+        {
+            if (!tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Add(this);
+                tickRegistered = true;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Remove(this);
+                tickRegistered = false;
+            }
+        }
+
+        // SIM time, overshoot kept: vanilla's ISim1000ms bucket through DeviceTick (see
+        // DeviceTick.cs). This used to be Update() counting Time.deltaTime and resetting to 0, so
+        // the device's throughput followed the frame rate.
+        public void Sim1000ms(float dt)
+        {
+            for (int due = tick.Advance(dt, SampleIntervalSeconds); due > 0; due--)
+            {
+                Step();
+            }
+        }
+
+        private void Step()
+        {
             if (Evaporator == null || Condenser == null)
             {
                 return;
@@ -228,7 +256,7 @@ namespace Mod1ThermoFluid
     /// makes the direction of each link (which is the only thing that actually differs) easy to
     /// eyeball-verify at the call site instead of hidden behind a constructor argument.
     /// </summary>
-    public class ExpansionValveComponent : MonoBehaviour
+    public class ExpansionValveComponent : MonoBehaviour, ISim1000ms
     {
         public GasMixtureTankComponent Evaporator;
         public GasMixtureTankComponent Condenser;
@@ -267,7 +295,7 @@ namespace Mod1ThermoFluid
         private const float MaxReturnKgPerSecond = 0.05f;
 
         private const float SampleIntervalSeconds = 1f;
-        private float timer;
+        private DeviceTick tick;
 
         /// <summary>Mirror of <see cref="CompressorLinkComponent.MovedKg"/> for the return leg.</summary>
         public static float MovedKg;
@@ -283,15 +311,43 @@ namespace Mod1ThermoFluid
         public static float FlashedKg;
         public static float LastInletTempK;
 
-        private void Update()
-        {
-            timer += Time.deltaTime;
-            if (timer < SampleIntervalSeconds)
-            {
-                return;
-            }
-            timer = 0f;
+        // A plain MonoBehaviour is not registered with SimAndRenderScheduler the way a
+        // KMonoBehaviour is (KMonoBehaviour.Spawn), so it registers itself. OnEnable/OnDisable,
+        // not Start/OnDestroy: work runs exactly while the component is enabled, which is when the
+        // Update() this replaces ran.
+        private bool tickRegistered;
 
+        private void OnEnable()
+        {
+            if (!tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Add(this);
+                tickRegistered = true;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (tickRegistered)
+            {
+                SimAndRenderScheduler.instance.Remove(this);
+                tickRegistered = false;
+            }
+        }
+
+        // SIM time, overshoot kept: vanilla's ISim1000ms bucket through DeviceTick (see
+        // DeviceTick.cs). This used to be Update() counting Time.deltaTime and resetting to 0, so
+        // the device's throughput followed the frame rate.
+        public void Sim1000ms(float dt)
+        {
+            for (int due = tick.Advance(dt, SampleIntervalSeconds); due > 0; due--)
+            {
+                Step();
+            }
+        }
+
+        private void Step()
+        {
             if (Evaporator == null || Condenser == null)
             {
                 return;

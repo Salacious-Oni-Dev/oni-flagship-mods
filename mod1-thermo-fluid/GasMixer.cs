@@ -27,8 +27,8 @@ namespace Mod1ThermoFluid
     /// - The per-tick rate cap is Stationeers' own
     ///   `MaxMolesPerTick = deltaP / (P_perMole_input + P_perMole_output) / FLOW_RATE_LIMITER`
     ///   with `FLOW_RATE_LIMITER = 5`.
-    /// - That cap only ever SCALES THE NOMINAL RATE UP, never down: Stationeers writes
-    ///   `num3 = Math.Max(1.0, num3)`, so a large pressure difference pushes more gas through but
+    /// - That cap only ever SCALES THE NOMINAL RATE UP, never down: Stationeers floors the
+    ///   scale at 1, so a large pressure difference pushes more gas through but
     ///   a small one does not throttle the device. Ported as written rather than "fixed" -- it is
     ///   what makes the mixer a powered device that can push into a pressurised line rather than
     ///   a passive tee that stalls the moment the output is fuller than the inputs.

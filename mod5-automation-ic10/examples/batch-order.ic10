@@ -1,0 +1,18 @@
+# Order five of one product from a machine with recipes, then stop.
+# d0: a rock crusher, a kiln, a metal refinery, any machine with a recipe list.
+# An order is one number put into the machine's stack:
+#   product hash * 65536 + quantity * 256 + 2
+alias machine d0
+define product HASH("Sand")
+define count 5
+clr machine
+move r0 product
+sll r0 r0 16          # the hash goes above the low two bytes
+sll r1 count 8        # the quantity is the second byte
+or r0 r0 r1
+or r0 r0 2            # 2: make this recipe
+put machine 0 r0
+wait:
+yield
+get r2 machine 0      # the machine counts the cell down and erases it when done
+bnez r2 wait

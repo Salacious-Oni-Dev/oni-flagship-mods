@@ -6,14 +6,9 @@ namespace Mod1ThermoFluid
 	/// Mod 1's log levels, and the reason it does not use Unity's directly.
 	///
 	/// <b>ONI TREATS <c>Debug.LogError</c> AS A CRASH.</b> This is not a style preference, it is
-	/// what the game's own code does with the call. From <c>KCrashReporter.HandleLog</c>:
-	/// <code>
-	///     if (!(errorScreen == null) || (type != LogType.Exception &amp;&amp; type != 0) || ...)
-	///             return;                     // LogType.Error IS 0, so an error does NOT return
-	///     ...
-	///     SpeedControlScreen.Instance.Pause(playSound: true, isCrashed: true);
-	///     ShowDialog(text2, text3);
-	/// </code>
+	/// what the game's own code does with the call. <c>KCrashReporter.HandleLog</c> returns early
+	/// for most log types, but not for an error (<c>LogType.Error</c> is 0): for an error it pauses
+	/// the game as crashed and shows the crash dialog;
 	/// and from <c>ShowDialog</c>, when any crashable mod is loaded, the dialog is built with a
 	/// <c>null</c> continue action unless the mod manager is in dev mode -- so on a player's
 	/// install there is no Continue button, only quit, and every mod found in the live stack is

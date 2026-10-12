@@ -1,0 +1,22 @@
+# Thermostat with a dead band.
+# d0: a thermo sensor (or any building that answers Temperature).
+# d1: a heater, or anything with an enable button.
+alias sensor d0
+alias heater d1
+define target 295   # kelvin
+define band 2
+loop:
+l r0 sensor Temperature
+sub r1 target band
+add r2 target band
+blt r0 r1 heat
+bgt r0 r2 rest
+j wait
+heat:
+s heater On 1
+j wait
+rest:
+s heater On 0
+wait:
+yield
+j loop
